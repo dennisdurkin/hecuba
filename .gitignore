@@ -1,9 +1,7 @@
+*.swp
 *.iml
 target
 .idea
 .classpath
 .project
 .settings/
-server.log
-dependency-reduced-pom.xml
-bin/
