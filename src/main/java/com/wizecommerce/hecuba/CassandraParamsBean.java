@@ -14,12 +14,11 @@
 
 package com.wizecommerce.hecuba;
 
-
 import com.google.common.base.Objects;
 
 /**
  * This is a bean to store cassandra connection parameters.
- *
+ * 
  * @author asinghal
  */
 public class CassandraParamsBean {
@@ -28,8 +27,10 @@ public class CassandraParamsBean {
 	// "locationURLs", "clustername"};
 
 	protected String clustername;
+	protected String dataCenter;
 	protected String locationURLs;
 	protected String thriftPorts;
+	protected String cqlPort;
 	protected String keyspace;
 	protected String columnFamily;
 	protected String keyType;
@@ -51,7 +52,6 @@ public class CassandraParamsBean {
 	// columns. The following parameter will enable the secondary index columns. If you set this parameter,
 	// we will match each and every column name with the given pattern and create a secondary index out of this.
 	protected String siByColumnsPattern = null;
-
 
 	public String getUsername() {
 		return username;
@@ -85,6 +85,14 @@ public class CassandraParamsBean {
 		this.clustername = clustername;
 	}
 
+	public String getDataCenter() {
+		return dataCenter;
+	}
+
+	public void setDataCenter(String dataCenter) {
+		this.dataCenter = dataCenter;
+	}
+
 	public String getLocationURLs() {
 		return locationURLs;
 	}
@@ -99,6 +107,14 @@ public class CassandraParamsBean {
 
 	public void setThriftPorts(String thriftPorts) {
 		this.thriftPorts = thriftPorts;
+	}
+
+	public String getCqlPort() {
+		return cqlPort;
+	}
+
+	public void setCqlPort(String cqlPort) {
+		this.cqlPort = cqlPort;
 	}
 
 	public String getKeyspace() {
@@ -151,20 +167,11 @@ public class CassandraParamsBean {
 		this.maxSiColumnCount = maxSiColumnCount;
 	}
 
-
 	public String toString() {
-		return Objects.toStringHelper(this)
-				.add("ClusterName", getClustername())
-				.add("LocationURLs", getLocationURLs())
-				.add("KeySpace,", getKeyspace())
-				.add("ThriftPorts", getThriftPorts())
-				.add("ColumnFamily", getColumnFamily())
-				.add("KeyType", getKeyType())
-				.add("SIColumns", getSiColumns())
-				.add("MaxColumnCount", getMaxColumnCount())
-				.add("MaxSiColumnCount", getMaxSiColumnCount())
-				.add("username", getUsername())
-//				.add("password", "*censored*")
+		return Objects.toStringHelper(this).add("ClusterName", getClustername()).add("LocationURLs", getLocationURLs()).add("KeySpace,", getKeyspace())
+				.add("ThriftPorts", getThriftPorts()).add("ColumnFamily", getColumnFamily()).add("KeyType", getKeyType()).add("SIColumns", getSiColumns())
+				.add("MaxColumnCount", getMaxColumnCount()).add("MaxSiColumnCount", getMaxSiColumnCount()).add("username", getUsername())
+				// .add("password", "*censored*")
 				.toString();
 
 	}
@@ -194,7 +201,6 @@ public class CassandraParamsBean {
 		setUsername(initialBean.getUsername());
 		setPassword(initialBean.getPassword());
 	}
-
 
 	@Deprecated
 	public CassandraParamsBean deepCopy() {

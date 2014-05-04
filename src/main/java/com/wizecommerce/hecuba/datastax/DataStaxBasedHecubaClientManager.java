@@ -4,6 +4,7 @@ import java.nio.ByteBuffer;
 import java.util.*;
 
 import org.apache.commons.lang.StringUtils;
+import org.apache.commons.lang.math.NumberUtils;
 import org.apache.log4j.BasicConfigurator;
 import org.apache.log4j.ConsoleAppender;
 import org.apache.log4j.PatternLayout;
@@ -11,11 +12,12 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.datastax.driver.core.*;
-import com.datastax.driver.core.policies.DCAwareRoundRobinPolicy;
-import com.datastax.driver.core.policies.LatencyAwarePolicy;
-import com.datastax.driver.core.policies.LoadBalancingPolicy;
-import com.datastax.driver.core.policies.TokenAwarePolicy;
+import com.datastax.driver.core.Cluster.Builder;
+import com.datastax.driver.core.ProtocolOptions.Compression;
+import com.datastax.driver.core.policies.*;
+import com.google.common.base.Splitter;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Iterables;
 import com.google.common.collect.ObjectArrays;
 import com.wizecommerce.hecuba.*;
 
@@ -28,9 +30,13 @@ public class DataStaxBasedHecubaClientManager<K> extends HecubaClientManager<K> 
 
 	private KeyType keyType;
 	private String datacenter;
-	private List<String> endpoints;
+	private String[] endpoints;
 	private int port;
 	private String keyspace;
+	private String username;
+	private String password;
+
+	private boolean compressionEnabled;
 
 	private Session session;
 
@@ -39,13 +45,17 @@ public class DataStaxBasedHecubaClientManager<K> extends HecubaClientManager<K> 
 	public DataStaxBasedHecubaClientManager(CassandraParamsBean parameters, KeyType keyType) {
 		super(parameters);
 
-		datacenter = "DC1";
-		endpoints = Arrays.asList("v-cass1.nextagqa.com");
-		port = 9042;
-		keyspace = "\"NextagTest\"";
-		columnFamily = "PTitle";
+		this.keyType = keyType;
 
-		init(keyType);
+		this.datacenter = parameters.getDataCenter();
+		this.endpoints = Iterables.toArray(Splitter.on(":").split(parameters.getLocationURLs()), String.class);
+		this.keyspace = parameters.getKeyspace();
+		this.columnFamily = '"' + parameters.getColumnFamily() + '"';
+		this.port = NumberUtils.toInt(parameters.getCqlPort());
+		this.username = parameters.getUsername();
+		this.password = parameters.getPassword();
+
+		init();
 	}
 
 	@Override
@@ -122,14 +132,14 @@ public class DataStaxBasedHecubaClientManager<K> extends HecubaClientManager<K> 
 
 	@Override
 	public CassandraResultSet<K, String> readAllColumns(K key) throws Exception {
-		String query = "select * from \"" + columnFamily + "\" where key=?";
+		String query = "select * from " + columnFamily + " where key=?";
 
 		return execute(query, convertKey(key));
 	}
 
 	@Override
 	public CassandraResultSet<K, String> readAllColumns(Set<K> keys) throws Exception {
-		String query = "select * from \"" + columnFamily + "\" where key in (" + StringUtils.repeat("?", ",", keys.size()) + ")";
+		String query = "select * from " + columnFamily + " where key in (" + StringUtils.repeat("?", ",", keys.size()) + ")";
 
 		return execute(query, convertKeys(keys));
 
@@ -149,7 +159,7 @@ public class DataStaxBasedHecubaClientManager<K> extends HecubaClientManager<K> 
 
 	@Override
 	public CassandraResultSet<K, String> readColumns(K key, List<String> columnNames) throws Exception {
-		String query = "select * from \"" + columnFamily + "\" where key=? and column1 in (" + StringUtils.repeat("?", ",", columnNames.size()) + ")";
+		String query = "select * from " + columnFamily + " where key=? and column1 in (" + StringUtils.repeat("?", ",", columnNames.size()) + ")";
 
 		CassandraResultSet<K, String> result = execute(query, ObjectArrays.concat(convertKey(key), columnNames.toArray(new Object[columnNames.size()])));
 
@@ -158,7 +168,7 @@ public class DataStaxBasedHecubaClientManager<K> extends HecubaClientManager<K> 
 
 	@Override
 	public CassandraResultSet<K, String> readColumns(Set<K> keys, List<String> columnNames) throws Exception {
-		String query = "select * from \"" + columnFamily + "\" where key in (" + StringUtils.repeat("?", ",", keys.size()) + ") and column1 in ("
+		String query = "select * from " + columnFamily + " where key in (" + StringUtils.repeat("?", ",", keys.size()) + ") and column1 in ("
 				+ StringUtils.repeat("?", ",", columnNames.size()) + ")";
 
 		columnNames.toArray();
@@ -170,7 +180,7 @@ public class DataStaxBasedHecubaClientManager<K> extends HecubaClientManager<K> 
 
 	@Override
 	public CassandraResultSet<K, String> readColumnSlice(K key, String start, String end, boolean reversed, int count) {
-		String query = "select * from \"" + columnFamily + "\" where key=? and column1 >= ? and column1 <= ? limit ?";
+		String query = "select * from " + columnFamily + " where key=? and column1 >= ? and column1 <= ? limit ?";
 
 		if (reversed) {
 			throw new UnsupportedOperationException("Reversed is unsupported currently");
@@ -181,7 +191,7 @@ public class DataStaxBasedHecubaClientManager<K> extends HecubaClientManager<K> 
 
 	@Override
 	public CassandraResultSet<K, String> readColumnSlice(Set<K> keys, String start, String end, boolean reversed, int count) {
-		String query = "select * from \"" + columnFamily + "\" where key in (" + StringUtils.repeat("?", ",", keys.size()) + ") and column1 >= ? and column1 <= ? limit ?";
+		String query = "select * from " + columnFamily + " where key in (" + StringUtils.repeat("?", ",", keys.size()) + ") and column1 >= ? and column1 <= ? limit ?";
 
 		if (reversed) {
 			throw new UnsupportedOperationException("Reversed is unsupported currently");
@@ -192,7 +202,7 @@ public class DataStaxBasedHecubaClientManager<K> extends HecubaClientManager<K> 
 
 	@Override
 	public String readString(K key, String columnName) {
-		String query = "select * from \"" + columnFamily + "\" where key=? and column1=?";
+		String query = "select * from " + columnFamily + " where key=? and column1=?";
 
 		CassandraResultSet<K, String> result = execute(query, convertKey(key), columnName);
 
@@ -298,13 +308,32 @@ public class DataStaxBasedHecubaClientManager<K> extends HecubaClientManager<K> 
 		return cassandraResultSet;
 	}
 
-	private void init(KeyType keyType) {
-		this.keyType = keyType;
-		LoadBalancingPolicy loadBalancingPolicy = new DCAwareRoundRobinPolicy(datacenter);
+	private void init() {
+		LoadBalancingPolicy loadBalancingPolicy;
+		if (datacenter != null) {
+			loadBalancingPolicy = new DCAwareRoundRobinPolicy(datacenter);
+		} else {
+			loadBalancingPolicy = new RoundRobinPolicy();
+		}
 		loadBalancingPolicy = new TokenAwarePolicy(loadBalancingPolicy);
 		loadBalancingPolicy = LatencyAwarePolicy.builder(loadBalancingPolicy).build();
-		Cluster cluster = Cluster.builder().addContactPoints(endpoints.toArray(new String[endpoints.size()])).withPort(port).withLoadBalancingPolicy(loadBalancingPolicy).build();
-		session = cluster.connect(keyspace);
+
+		Builder builder = Cluster.builder().addContactPoints(endpoints).withLoadBalancingPolicy(loadBalancingPolicy);
+
+		if (port > 0) {
+			builder.withPort(port);
+		}
+
+		if (username != null && password != null) {
+			builder.withCredentials(username, password);
+		}
+
+		if (compressionEnabled) {
+			builder.withCompression(Compression.LZ4);
+		}
+
+		Cluster cluster = builder.build();
+		session = cluster.connect('"' + keyspace + '"');
 	}
 
 	@Override
@@ -316,6 +345,12 @@ public class DataStaxBasedHecubaClientManager<K> extends HecubaClientManager<K> 
 			BasicConfigurator.configure(new ConsoleAppender(new PatternLayout("%-4r [%t] %-5p %c %x - %m%n")));
 
 			CassandraParamsBean parameters = new CassandraParamsBean();
+
+			parameters.setColumnFamily("PTitle");
+			parameters.setDataCenter("DC1");
+			parameters.setLocationURLs("v-cass1.nextagqa.com");
+			parameters.setKeyspace("NextagTest");
+
 			DataStaxBasedHecubaClientManager<Long> client = new DataStaxBasedHecubaClientManager<>(parameters, KeyType.LONG);
 
 			CassandraResultSet<Long, String> readAllColumns;

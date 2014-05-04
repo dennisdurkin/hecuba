@@ -46,6 +46,7 @@ public abstract class CassandraTestBase {
 	public static final String CLUSTER_NAME = "TestCluster";
 	public static final String LOCATION = "127.0.0.1";
 	public static final String PORT = "9171";
+	public static final String CQL_PORT = "9142";
 	public static final String KEYSPACE = "Nextag";
 	public static final Serializer<Long> LONG_KEY_SERIALIZER = LongSerializer.get();
 
