@@ -14,11 +14,21 @@
 
 package com.wizecommerce.hecuba.util;
 
-import com.wizecommerce.hecuba.CassandraParamsBean;
-import com.wizecommerce.hecuba.HecubaClientManager;
-import com.wizecommerce.hecuba.HecubaConstants;
+import java.io.FileNotFoundException;
+import java.io.IOException;
+import java.io.StringWriter;
+import java.lang.reflect.Method;
+import java.util.ArrayList;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+
+import javax.xml.namespace.QName;
+import javax.xml.stream.XMLStreamException;
+
 import me.prettyprint.cassandra.serializers.LongSerializer;
 import me.prettyprint.hector.api.Serializer;
+
 import org.apache.axiom.om.*;
 import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.log4j.Logger;
@@ -28,16 +38,9 @@ import org.cassandraunit.utils.EmbeddedCassandraServerHelper;
 import org.junit.AfterClass;
 import org.junit.BeforeClass;
 
-import javax.xml.namespace.QName;
-import javax.xml.stream.XMLStreamException;
-import java.io.FileNotFoundException;
-import java.io.IOException;
-import java.io.StringWriter;
-import java.lang.reflect.Method;
-import java.util.ArrayList;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Map;
+import com.wizecommerce.hecuba.CassandraParamsBean;
+import com.wizecommerce.hecuba.HecubaClientManager;
+import com.wizecommerce.hecuba.HecubaConstants;
 
 
 public abstract class CassandraTestBase {

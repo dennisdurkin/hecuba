@@ -3,11 +3,11 @@ package com.wizecommerce.hecuba.datastax;
 import java.nio.ByteBuffer;
 import java.util.*;
 
-import org.apache.commons.lang.StringUtils;
 import org.apache.commons.lang.math.NumberUtils;
 import org.apache.log4j.BasicConfigurator;
 import org.apache.log4j.ConsoleAppender;
 import org.apache.log4j.PatternLayout;
+import org.joda.time.DateTime;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -16,10 +16,11 @@ import com.datastax.driver.core.Cluster.Builder;
 import com.datastax.driver.core.ProtocolOptions.Compression;
 import com.datastax.driver.core.policies.*;
 import com.google.common.base.Splitter;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
-import com.google.common.collect.ObjectArrays;
 import com.wizecommerce.hecuba.*;
+import com.wizecommerce.hecuba.util.ClientManagerUtils;
 
 public class DataStaxBasedHecubaClientManager<K> extends HecubaClientManager<K> {
 	private static final Logger logger = LoggerFactory.getLogger(DataStaxBasedHecubaClientManager.class);
@@ -35,6 +36,7 @@ public class DataStaxBasedHecubaClientManager<K> extends HecubaClientManager<K> 
 	private String keyspace;
 	private String username;
 	private String password;
+	private ConsistencyLevel consistencyLevel;
 
 	private boolean compressionEnabled;
 
@@ -54,6 +56,8 @@ public class DataStaxBasedHecubaClientManager<K> extends HecubaClientManager<K> 
 		this.port = NumberUtils.toInt(parameters.getCqlPort());
 		this.username = parameters.getUsername();
 		this.password = parameters.getPassword();
+
+		this.consistencyLevel = ConsistencyLevel.LOCAL_ONE;
 
 		init();
 	}
@@ -84,26 +88,53 @@ public class DataStaxBasedHecubaClientManager<K> extends HecubaClientManager<K> 
 
 	@Override
 	public void deleteColumn(K key, String columnName) {
-		// TODO Auto-generated method stub
+		List<Object> values = new ArrayList<>();
 
+		String query = "DELETE FROM " + columnFamily + " WHERE key = ? and column1 = ?";
+		values.add(convertKey(key));
+		values.add(columnName);
+
+		execute(query, values.toArray(new Object[values.size()]));
 	}
 
 	@Override
-	public void deleteColumns(K key, List<String> columnNameList) {
-		// TODO Auto-generated method stub
+	public void deleteColumns(K key, List<String> columnNames) {
+		StringBuilder builder = new StringBuilder();
+		List<Object> values = new ArrayList<>();
 
-	}
+		if (columnNames.size() > 1) {
+			builder.append("BEGIN BATCH\n");
+		}
 
-	@Override
-	public void deleteRow(K key) {
-		// TODO Auto-generated method stub
+		for (String columnName : columnNames) {
+			builder.append("\tDELETE FROM " + columnFamily + " where key = ? and column1 = ?;\n");
+			values.add(convertKey(key));
+			values.add(columnName);
+		}
 
+		if (columnNames.size() > 1) {
+			builder.append("APPLY BATCH;");
+		}
+
+		execute(builder.toString(), values.toArray(new Object[values.size()]));
 	}
 
 	@Override
 	public void deleteRow(K key, long timestamp) {
-		// TODO Auto-generated method stub
+		StringBuilder builder = new StringBuilder();
+		List<Object> values = new ArrayList<>();
 
+		builder.append("DELETE FROM " + columnFamily);
+
+		if (timestamp > 0) {
+			builder.append(" USING TIMESTAMP ?");
+			values.add(timestamp);
+		}
+
+		builder.append(" WHERE key = ?");
+		values.add(convertKey(key));
+
+		execute(builder.toString(), values.toArray(new Object[values.size()]));
 	}
 
 	@Override
@@ -139,7 +170,7 @@ public class DataStaxBasedHecubaClientManager<K> extends HecubaClientManager<K> 
 
 	@Override
 	public CassandraResultSet<K, String> readAllColumns(Set<K> keys) throws Exception {
-		String query = "select * from " + columnFamily + " where key in (" + StringUtils.repeat("?", ",", keys.size()) + ")";
+		String query = "select * from " + columnFamily + " where key in ?";
 
 		return execute(query, convertKeys(keys));
 
@@ -159,21 +190,18 @@ public class DataStaxBasedHecubaClientManager<K> extends HecubaClientManager<K> 
 
 	@Override
 	public CassandraResultSet<K, String> readColumns(K key, List<String> columnNames) throws Exception {
-		String query = "select * from " + columnFamily + " where key=? and column1 in (" + StringUtils.repeat("?", ",", columnNames.size()) + ")";
+		String query = "select * from " + columnFamily + " where key=? and column1 in ?";
 
-		CassandraResultSet<K, String> result = execute(query, ObjectArrays.concat(convertKey(key), columnNames.toArray(new Object[columnNames.size()])));
+		CassandraResultSet<K, String> result = execute(query, convertKey(key), columnNames);
 
 		return result;
 	}
 
 	@Override
 	public CassandraResultSet<K, String> readColumns(Set<K> keys, List<String> columnNames) throws Exception {
-		String query = "select * from " + columnFamily + " where key in (" + StringUtils.repeat("?", ",", keys.size()) + ") and column1 in ("
-				+ StringUtils.repeat("?", ",", columnNames.size()) + ")";
+		String query = "select * from " + columnFamily + " where key in ? and column1 in ?";
 
-		columnNames.toArray();
-
-		CassandraResultSet<K, String> result = execute(query, ObjectArrays.concat(convertKeys(keys), columnNames.toArray(new Object[columnNames.size()]), Object.class));
+		CassandraResultSet<K, String> result = execute(query, convertKeys(keys), columnNames);
 
 		return result;
 	}
@@ -191,13 +219,13 @@ public class DataStaxBasedHecubaClientManager<K> extends HecubaClientManager<K> 
 
 	@Override
 	public CassandraResultSet<K, String> readColumnSlice(Set<K> keys, String start, String end, boolean reversed, int count) {
-		String query = "select * from " + columnFamily + " where key in (" + StringUtils.repeat("?", ",", keys.size()) + ") and column1 >= ? and column1 <= ? limit ?";
+		String query = "select * from " + columnFamily + " where key in ? and column1 >= ? and column1 <= ? limit ?";
 
 		if (reversed) {
 			throw new UnsupportedOperationException("Reversed is unsupported currently");
 		}
 
-		return execute(query, ObjectArrays.concat(convertKeys(keys), new Object[] { start, end, count }, Object.class));
+		return execute(query, convertKeys(keys), start, end, count);
 	}
 
 	@Override
@@ -263,14 +291,68 @@ public class DataStaxBasedHecubaClientManager<K> extends HecubaClientManager<K> 
 
 	@Override
 	public void updateRow(K key, Map<String, Object> row, Map<String, Long> timestamps, Map<String, Integer> ttls) throws Exception {
-		// TODO Auto-generated method stub
+		StringBuilder builder = new StringBuilder();
+		List<Object> values = new ArrayList<>();
 
+		if (row.size() > 1) {
+			builder.append("BEGIN BATCH\n");
+		}
+
+		for (Map.Entry<String, Object> entry : row.entrySet()) {
+			builder.append("\tINSERT INTO " + columnFamily + " (key, column1, value) values (?,?,?)");
+			values.add(convertKey(key));
+			values.add(entry.getKey());
+			String valueToInsert = ClientManagerUtils.getInstance().convertValueForStorage(entry.getValue());
+			values.add(valueToInsert);
+
+			Long timestamp = timestamps != null ? timestamps.get(entry.getKey()) : null;
+			Integer ttl = ttls != null ? ttls.get(entry.getKey()) : null;
+
+			if (timestamp != null && timestamp > 0 && ttl != null && ttl > 0) {
+				builder.append(" USING TIMESTAMP ? and TTL ?");
+				values.add(timestamp);
+				values.add(ttl);
+			} else if (timestamp != null && timestamp > 0) {
+				builder.append(" USING TIMESTAMP ?");
+				values.add(timestamp);
+			} else if (ttl != null && ttl > 0) {
+				builder.append(" USING TTL ?");
+				values.add(ttl);
+			}
+
+			builder.append(";\n");
+		}
+
+		if (row.size() > 1) {
+			builder.append("APPLY BATCH;");
+		}
+
+		execute(builder.toString(), values.toArray(new Object[values.size()]));
 	}
 
 	@Override
 	public void updateString(K key, String columnName, String value, long timestamp, int ttl) {
-		// TODO Auto-generated method stub
+		StringBuilder builder = new StringBuilder();
+		List<Object> values = new ArrayList<>();
 
+		builder.append("INSERT INTO " + columnFamily + "(key, column1, value) values (?,?,?)");
+		values.add(convertKey(key));
+		values.add(columnName);
+		values.add(value);
+
+		if (timestamp > 0 && ttl > 0) {
+			builder.append(" USING TIMESTAMP ? and TTL ?");
+			values.add(timestamp);
+			values.add(ttl);
+		} else if (timestamp > 0) {
+			builder.append(" USING TIMESTAMP ?");
+			values.add(timestamp);
+		} else if (ttl > 0) {
+			builder.append(" USING TTL ?");
+			values.add(ttl);
+		}
+
+		execute(builder.toString(), values.toArray(new Object[values.size()]));
 	}
 
 	private Object convertKey(K key) {
@@ -280,23 +362,24 @@ public class DataStaxBasedHecubaClientManager<K> extends HecubaClientManager<K> 
 		return key.toString();
 	}
 
-	private Object[] convertKeys(Collection<K> keys) {
+	private List<?> convertKeys(Set<K> keys) {
 		if (keyType == KeyType.LONG) {
-			return keys.toArray(new Object[keys.size()]);
+			return new ArrayList<>(keys);
 		}
 
-		List<Object> convertedKeys = new ArrayList<>();
+		List<Object> convertedKeys = new ArrayList<>(keys.size());
 
 		for (K key : keys) {
 			convertedKeys.add(key.toString());
 		}
 
-		return convertedKeys.toArray(new Object[convertedKeys.size()]);
+		return convertedKeys;
 	}
 
 	private CassandraResultSet<K, String> execute(String query, Object... values) {
-		logger.info("query = {}  values = {}", query, values);
+		logger.info("query = {} : values = {}", query, values);
 		PreparedStatement stmt = session.prepare(query);
+		stmt.setConsistencyLevel(consistencyLevel);
 
 		BoundStatement bind = stmt.bind(values);
 		long startTimeNanos = System.nanoTime();
@@ -375,6 +458,31 @@ public class DataStaxBasedHecubaClientManager<K> extends HecubaClientManager<K> 
 
 			readAllColumns = client.readColumnSlice(ImmutableSet.of(135573L, 135585L), "D", "O", false, 100);
 			System.out.println("readColumnSlice = " + readAllColumns);
+
+			client.updateString(135573L, "DUMMY_COLUMN", DateTime.now().toString(), -1, 1000);
+			readString = client.readString(135573L, "DUMMY_COLUMN");
+			System.out.println("readString = " + readString);
+
+			client.updateRow(135585L, ImmutableMap.of("DUMMY_COLUMN2", (Object) DateTime.now().toString(), "DUMMY_COLUMN3", DateTime.now().toString()),
+					ImmutableMap.of("DUMMY_COLUMN2", -1L), ImmutableMap.of("DUMMY_COLUMN3", 30));
+			readAllColumns = client.readAllColumns(135585L);
+			System.out.println("readAllColumns = " + readAllColumns);
+
+			client.deleteColumn(135573L, "DUMMY_COLUMN");
+			readString = client.readString(135573L, "DUMMY_COLUMN");
+			System.out.println("readString = " + readString);
+
+			client.deleteColumns(135585L, Arrays.asList("DUMMY_COLUMN2", "DUMMY_COLUMN3"));
+			readAllColumns = client.readAllColumns(135585L);
+			System.out.println("readAllColumns = " + readAllColumns);
+
+			client.deleteColumns(135585L, Arrays.asList("DUMMY_COLUMN2", "DUMMY_COLUMN3"));
+			readAllColumns = client.readAllColumns(135585L);
+			System.out.println("readAllColumns = " + readAllColumns);
+
+			client.deleteRow(122741L, DateTime.now().getMillis() * 1000);
+			readAllColumns = client.readAllColumns(115533L);
+			System.out.println("readAllColumns = " + readAllColumns);
 
 			System.exit(0);
 		} catch (Exception e) {

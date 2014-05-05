@@ -15,13 +15,7 @@
 package com.wizecommerce.hecuba;
 
 import java.nio.ByteBuffer;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.Date;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 
 import org.apache.commons.lang.StringUtils;
 import org.apache.log4j.Logger;
@@ -605,7 +599,9 @@ public abstract class HecubaClientManager<K> {
 	 *
 	 * @param key - the key of the row to be deleted.
 	 */
-	public abstract void deleteRow(K key);
+	public void deleteRow(K key) {
+		deleteRow(key, -1);
+	}
 
 	public abstract void deleteRow(K key, long timestamp);
 

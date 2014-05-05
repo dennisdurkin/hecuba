@@ -18,15 +18,7 @@
 package com.wizecommerce.hecuba.hector;
 
 import java.nio.ByteBuffer;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.Date;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 
 import me.prettyprint.cassandra.connection.HConnectionManager;
 import me.prettyprint.cassandra.model.IndexedSlicesQuery;
@@ -43,11 +35,7 @@ import me.prettyprint.hector.api.Cluster;
 import me.prettyprint.hector.api.ConsistencyLevelPolicy;
 import me.prettyprint.hector.api.Keyspace;
 import me.prettyprint.hector.api.Serializer;
-import me.prettyprint.hector.api.beans.ColumnSlice;
-import me.prettyprint.hector.api.beans.HColumn;
-import me.prettyprint.hector.api.beans.HCounterColumn;
-import me.prettyprint.hector.api.beans.OrderedRows;
-import me.prettyprint.hector.api.beans.Rows;
+import me.prettyprint.hector.api.beans.*;
 import me.prettyprint.hector.api.ddl.ColumnFamilyDefinition;
 import me.prettyprint.hector.api.ddl.KeyspaceDefinition;
 import me.prettyprint.hector.api.exceptions.HectorException;
@@ -66,12 +54,8 @@ import org.apache.commons.lang.StringUtils;
 import org.apache.commons.lang.exception.ExceptionUtils;
 
 import com.google.common.base.Joiner;
-import com.wizecommerce.hecuba.CassandraColumn;
-import com.wizecommerce.hecuba.CassandraParamsBean;
-import com.wizecommerce.hecuba.CassandraResultSet;
-import com.wizecommerce.hecuba.ColumnFamilyInfo;
-import com.wizecommerce.hecuba.HecubaClientManager;
-import com.wizecommerce.hecuba.HecubaConstants;
+import com.wizecommerce.hecuba.*;
+import com.wizecommerce.hecuba.util.ClientManagerUtils;
 import com.wizecommerce.hecuba.util.ConfigUtils;
 
 /**
@@ -296,15 +280,6 @@ public class HectorBasedHecubaClientManager<K> extends HecubaClientManager<K> {
 		columnFamily1.deleteColumn(key, columnName);
 	}
 
-	/**
-	 * Deletes an entire row for a given key.
-	 *
-	 * @param key - the key of the row to be deleted.
-	 */
-	public void deleteRow(K key) {
-		deleteRow(key, -1);
-	}
-
 	public void deleteRow(K key, long timestamp) {
 		final ColumnFamilyTemplate<K, String> columnFamily1 = getColumnFamily();
 
@@ -357,25 +332,7 @@ public class HectorBasedHecubaClientManager<K> extends HecubaClientManager<K> {
 		for (String columnName : row.keySet()) {
 			final Object value = row.get(columnName);
 
-			String valueToInsert = "null";
-
-			if (value != null) {
-
-				if (value instanceof Integer || value instanceof Long || value instanceof Double) {
-					valueToInsert = value.toString();
-				} else if (value instanceof Date) {
-					valueToInsert = HecubaConstants.DATE_FORMATTER.print(((Date) value).getTime());
-				} else if (value instanceof Boolean) {
-					valueToInsert = ((Boolean) value) ? "true" : "false";
-				} else if (value instanceof String) {
-					valueToInsert = (String) value;
-				} else {
-					// TODO:Eran
-					// not sure what to do here. There has to be a serializer to
-					// send this value.
-					valueToInsert = value.toString();
-				}
-			}
+			String valueToInsert = ClientManagerUtils.getInstance().convertValueForStorage(value);
 
 			addInsertionToMutator(key, columnName, valueToInsert, timestampsDefined && timestamps.get(columnName) !=
 					null ? timestamps.get(columnName) : -1, ttlsDefined && ttls.get(columnName) != null ? ttls.get(
