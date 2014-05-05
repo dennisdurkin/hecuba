@@ -16,6 +16,9 @@ import com.datastax.driver.core.Cluster.Builder;
 import com.datastax.driver.core.ProtocolOptions.Compression;
 import com.datastax.driver.core.policies.*;
 import com.google.common.base.Splitter;
+import com.google.common.cache.CacheBuilder;
+import com.google.common.cache.CacheLoader;
+import com.google.common.cache.LoadingCache;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
@@ -37,6 +40,14 @@ public class DataStaxBasedHecubaClientManager<K> extends HecubaClientManager<K> 
 	private String username;
 	private String password;
 	private ConsistencyLevel consistencyLevel;
+	private LoadingCache<String, PreparedStatement> statementCache = CacheBuilder.newBuilder().maximumSize(1000).build(new CacheLoader<String, PreparedStatement>() {
+		@Override
+		public PreparedStatement load(String query) throws Exception {
+			PreparedStatement stmt = session.prepare(query);
+			stmt.setConsistencyLevel(consistencyLevel);
+			return stmt;
+		}
+	});
 
 	private boolean compressionEnabled;
 
@@ -377,9 +388,8 @@ public class DataStaxBasedHecubaClientManager<K> extends HecubaClientManager<K> 
 	}
 
 	private CassandraResultSet<K, String> execute(String query, Object... values) {
-		logger.info("query = {} : values = {}", query, values);
-		PreparedStatement stmt = session.prepare(query);
-		stmt.setConsistencyLevel(consistencyLevel);
+		logger.debug("query = {} : values = {}", query, values);
+		PreparedStatement stmt = statementCache.getUnchecked(query);
 
 		BoundStatement bind = stmt.bind(values);
 		long startTimeNanos = System.nanoTime();
