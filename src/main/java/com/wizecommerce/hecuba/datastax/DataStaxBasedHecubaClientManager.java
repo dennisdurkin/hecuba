@@ -13,6 +13,7 @@ import org.slf4j.LoggerFactory;
 
 import com.datastax.driver.core.*;
 import com.datastax.driver.core.Cluster.Builder;
+import com.datastax.driver.core.DataType.Name;
 import com.datastax.driver.core.ProtocolOptions.Compression;
 import com.datastax.driver.core.policies.*;
 import com.google.common.base.Splitter;
@@ -28,11 +29,7 @@ import com.wizecommerce.hecuba.util.ClientManagerUtils;
 public class DataStaxBasedHecubaClientManager<K> extends HecubaClientManager<K> {
 	private static final Logger logger = LoggerFactory.getLogger(DataStaxBasedHecubaClientManager.class);
 
-	public static enum KeyType {
-		STRING, LONG
-	};
-
-	private KeyType keyType;
+	private DataType keyType;
 	private String datacenter;
 	private String[] endpoints;
 	private int port;
@@ -55,7 +52,7 @@ public class DataStaxBasedHecubaClientManager<K> extends HecubaClientManager<K> 
 
 	private String columnFamily;
 
-	public DataStaxBasedHecubaClientManager(CassandraParamsBean parameters, KeyType keyType) {
+	public DataStaxBasedHecubaClientManager(CassandraParamsBean parameters, DataType keyType) {
 		super(parameters);
 
 		this.keyType = keyType;
@@ -92,12 +89,6 @@ public class DataStaxBasedHecubaClientManager<K> extends HecubaClientManager<K> 
 	}
 
 	@Override
-	public void decrementCounter(K key, String counterColumnName) {
-		// TODO Auto-generated method stub
-
-	}
-
-	@Override
 	public void deleteColumn(K key, String columnName) {
 		List<Object> values = new ArrayList<>();
 
@@ -105,7 +96,7 @@ public class DataStaxBasedHecubaClientManager<K> extends HecubaClientManager<K> 
 		values.add(convertKey(key));
 		values.add(columnName);
 
-		execute(query, values.toArray(new Object[values.size()]));
+		execute(query, values.toArray());
 	}
 
 	@Override
@@ -114,7 +105,7 @@ public class DataStaxBasedHecubaClientManager<K> extends HecubaClientManager<K> 
 		List<Object> values = new ArrayList<>();
 
 		if (columnNames.size() > 1) {
-			builder.append("BEGIN BATCH\n");
+			builder.append("BEGIN UNLOGGED BATCH\n");
 		}
 
 		for (String columnName : columnNames) {
@@ -127,7 +118,7 @@ public class DataStaxBasedHecubaClientManager<K> extends HecubaClientManager<K> 
 			builder.append("APPLY BATCH;");
 		}
 
-		execute(builder.toString(), values.toArray(new Object[values.size()]));
+		execute(builder.toString(), values.toArray());
 	}
 
 	@Override
@@ -145,31 +136,43 @@ public class DataStaxBasedHecubaClientManager<K> extends HecubaClientManager<K> 
 		builder.append(" WHERE key = ?");
 		values.add(convertKey(key));
 
-		execute(builder.toString(), values.toArray(new Object[values.size()]));
-	}
-
-	@Override
-	public void dropColumnFamily(String keyspace, String columnFamilyName) {
-		// TODO Auto-generated method stub
-
-	}
-
-	@Override
-	public void dropKeyspace(String keyspace) {
-		// TODO Auto-generated method stub
-
+		execute(builder.toString(), values.toArray());
 	}
 
 	@Override
 	public Long getCounterValue(K key, String counterColumnName) {
-		// TODO Auto-generated method stub
+		String query = "select * from " + columnFamily + " where key=? and column1=?";
+
+		CassandraResultSet<K, String> result = execute(query, ImmutableMap.of(counterColumnName, DataType.counter()), convertKey(key), counterColumnName);
+
+		if (result.hasResults()) {
+			return result.getLong(counterColumnName);
+		}
+
 		return null;
 	}
 
 	@Override
-	public void incrementCounter(K key, String counterColumnName) {
-		// TODO Auto-generated method stub
+	public void updateCounter(K key, String counterColumnName, long value) {
+		StringBuilder builder = new StringBuilder();
+		List<Object> values = new ArrayList<>();
 
+		builder.append("UPDATE " + columnFamily + "set value = value + ? where key = ? and column1 = ?");
+		values.add(value);
+		values.add(convertKey(key));
+		values.add(counterColumnName);
+
+		execute(builder.toString(), values.toArray());
+	}
+
+	@Override
+	public void incrementCounter(K key, String counterColumnName) {
+		updateCounter(key, counterColumnName, 1);
+	}
+
+	@Override
+	public void decrementCounter(K key, String counterColumnName) {
+		updateCounter(key, counterColumnName, -1);
 	}
 
 	@Override
@@ -222,6 +225,7 @@ public class DataStaxBasedHecubaClientManager<K> extends HecubaClientManager<K> 
 		String query = "select * from " + columnFamily + " where key=? and column1 >= ? and column1 <= ? limit ?";
 
 		if (reversed) {
+			// TODO: try to use "order by"
 			throw new UnsupportedOperationException("Reversed is unsupported currently");
 		}
 
@@ -290,14 +294,15 @@ public class DataStaxBasedHecubaClientManager<K> extends HecubaClientManager<K> 
 
 	@Override
 	public void updateByteBuffer(K key, String columnName, ByteBuffer value) {
-		// TODO Auto-generated method stub
+		StringBuilder builder = new StringBuilder();
+		List<Object> values = new ArrayList<>();
 
-	}
+		builder.append("INSERT INTO " + columnFamily + "(key, column1, value) values (?,?,?)");
+		values.add(convertKey(key));
+		values.add(columnName);
+		values.add(value);
 
-	@Override
-	public void updateCounter(K key, String counterColumnName, long value) {
-		// TODO Auto-generated method stub
-
+		execute(builder.toString(), values.toArray());
 	}
 
 	@Override
@@ -306,7 +311,7 @@ public class DataStaxBasedHecubaClientManager<K> extends HecubaClientManager<K> 
 		List<Object> values = new ArrayList<>();
 
 		if (row.size() > 1) {
-			builder.append("BEGIN BATCH\n");
+			builder.append("BEGIN UNLOGGED BATCH\n");
 		}
 
 		for (Map.Entry<String, Object> entry : row.entrySet()) {
@@ -338,7 +343,7 @@ public class DataStaxBasedHecubaClientManager<K> extends HecubaClientManager<K> 
 			builder.append("APPLY BATCH;");
 		}
 
-		execute(builder.toString(), values.toArray(new Object[values.size()]));
+		execute(builder.toString(), values.toArray());
 	}
 
 	@Override
@@ -363,19 +368,24 @@ public class DataStaxBasedHecubaClientManager<K> extends HecubaClientManager<K> 
 			values.add(ttl);
 		}
 
-		execute(builder.toString(), values.toArray(new Object[values.size()]));
+		execute(builder.toString(), values.toArray());
 	}
 
 	private Object convertKey(K key) {
-		if (keyType == KeyType.LONG) {
+		if (keyType.getName() == Name.BIGINT) {
 			return key;
+		} else if (keyType.getName() == Name.TEXT) {
+			return key.toString();
+		} else {
+			throw new RuntimeException("Unhandled DataType: " + keyType);
 		}
-		return key.toString();
 	}
 
 	private List<?> convertKeys(Set<K> keys) {
-		if (keyType == KeyType.LONG) {
+		if (keyType.getName() == Name.BIGINT) {
 			return new ArrayList<>(keys);
+		} else if (keyType.getName() != Name.TEXT) {
+			throw new RuntimeException("Unhandled DataType: " + keyType);
 		}
 
 		List<Object> convertedKeys = new ArrayList<>(keys.size());
@@ -388,6 +398,10 @@ public class DataStaxBasedHecubaClientManager<K> extends HecubaClientManager<K> 
 	}
 
 	private CassandraResultSet<K, String> execute(String query, Object... values) {
+		return execute(query, null, values);
+	}
+
+	private CassandraResultSet<K, String> execute(String query, Map<String, DataType> valueTypes, Object... values) {
 		logger.debug("query = {} : values = {}", query, values);
 		PreparedStatement stmt = statementCache.getUnchecked(query);
 
@@ -396,7 +410,7 @@ public class DataStaxBasedHecubaClientManager<K> extends HecubaClientManager<K> 
 		ResultSet rs = session.execute(bind);
 		long durationNanos = System.nanoTime() - startTimeNanos;
 
-		DataStaxCassandraResultSet<K> cassandraResultSet = new DataStaxCassandraResultSet<>(rs, keyType, durationNanos);
+		DataStaxCassandraResultSet<K> cassandraResultSet = new DataStaxCassandraResultSet<>(rs, keyType, valueTypes, durationNanos);
 
 		return cassandraResultSet;
 	}
@@ -444,7 +458,7 @@ public class DataStaxBasedHecubaClientManager<K> extends HecubaClientManager<K> 
 			parameters.setLocationURLs("v-cass1.nextagqa.com");
 			parameters.setKeyspace("NextagTest");
 
-			DataStaxBasedHecubaClientManager<Long> client = new DataStaxBasedHecubaClientManager<>(parameters, KeyType.LONG);
+			DataStaxBasedHecubaClientManager<Long> client = new DataStaxBasedHecubaClientManager<>(parameters, DataType.bigint());
 
 			CassandraResultSet<Long, String> readAllColumns;
 

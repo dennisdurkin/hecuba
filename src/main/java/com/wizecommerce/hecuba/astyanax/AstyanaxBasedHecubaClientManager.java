@@ -233,16 +233,6 @@ public class AstyanaxBasedHecubaClientManager<K> extends HecubaClientManager<K> 
 	}
 
 	@Override
-	public void dropKeyspace(String keyspace) {
-		try {
-			clusterContext.getEntity().dropKeyspace(keyspace);
-		} catch (ConnectionException e) {
-			log.warn("Couldn't drop the keyspace");
-		}
-
-	}
-
-	@Override
 	public void addColumnFamily(String keyspace, String columnFamilyName) {
 		try {
 			if (keyspace != null) {
@@ -260,18 +250,6 @@ public class AstyanaxBasedHecubaClientManager<K> extends HecubaClientManager<K> 
 		}
 
 	}
-
-	@Override
-	public void dropColumnFamily(String keyspace, String columnFamilyName) {
-		try {
-			if (keyspace != null && clusterContext != null) {
-				clusterContext.getEntity().dropColumnFamily(keyspace, columnFamilyName);
-			}
-		} catch (ConnectionException e) {
-			log.warn(String.format("Couldn't drop column family %s under %s keyspace", columnFamilyName, keyspace), e);
-		}
-	}
-
 	@Override
 	public void updateRow(K key, Map<String, Object> row, Map<String, Long> timestamps, Map<String, Integer> ttls) throws Exception {
 		// Inserting data

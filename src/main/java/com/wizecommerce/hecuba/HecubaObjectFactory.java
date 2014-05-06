@@ -14,9 +14,9 @@
 
 package com.wizecommerce.hecuba;
 
+import com.datastax.driver.core.DataType;
 import com.wizecommerce.hecuba.astyanax.AstyanaxBasedHecubaClientManager;
 import com.wizecommerce.hecuba.datastax.DataStaxBasedHecubaClientManager;
-import com.wizecommerce.hecuba.datastax.DataStaxBasedHecubaClientManager.KeyType;
 import com.wizecommerce.hecuba.hector.HectorBasedHecubaClientManager;
 import com.wizecommerce.hecuba.util.ConfigUtils;
 
@@ -37,7 +37,7 @@ public class HecubaObjectFactory {
 		case HECTOR:
 			return new HectorBasedHecubaClientManager<>(parameters, me.prettyprint.cassandra.serializers.LongSerializer.get());
 		case DATASTAX:
-			return new DataStaxBasedHecubaClientManager<>(parameters, KeyType.LONG);
+			return new DataStaxBasedHecubaClientManager<>(parameters, DataType.bigint());
 		default:
 			throw new RuntimeException("Unhandled CassandraManagerType: " + cassandraManagerType);
 		}
@@ -50,7 +50,7 @@ public class HecubaObjectFactory {
 		case HECTOR:
 			return new HectorBasedHecubaClientManager<String>(parameters, me.prettyprint.cassandra.serializers.StringSerializer.get());
 		case DATASTAX:
-			return new DataStaxBasedHecubaClientManager<>(parameters, KeyType.STRING);
+			return new DataStaxBasedHecubaClientManager<>(parameters, DataType.text());
 		default:
 			throw new RuntimeException("Unhandled CassandraManagerType: " + cassandraManagerType);
 		}

@@ -275,23 +275,10 @@ public abstract class HecubaClientManager<K> {
 	}
 
 	/**
-	 * Removes the keyspace from the cluster.
-	 *
-	 * @param keyspace - name of the keyspace to be removed.
-	 */
-	public abstract void dropKeyspace(String keyspace);
-
-	/**
 	 * @param columnFamilyName - name of the column family to be created.
 	 */
 	public abstract void addColumnFamily(String keyspace, String columnFamilyName);
 
-	/**
-	 * Removes a column family.
-	 *
-	 * @param columnFamilyName - name of the column family to be removed.
-	 */
-	public abstract void dropColumnFamily(String keyspace, String columnFamilyName);
 
 	// ====================================================================================
 

@@ -215,15 +215,6 @@ public class HectorBasedHecubaClientManager<K> extends HecubaClientManager<K> {
 	}
 
 	/**
-	 * Removes the keyspace from the cluster.
-	 *
-	 * @param keyspace - name of the keyspace to be removed.
-	 */
-	public void dropKeyspace(String keyspace) {
-		cluster.dropKeyspace(keyspace, true);
-	}
-
-	/**
 	 * @param columnFamilyName - name of the column family to be created.
 	 */
 	public void addColumnFamily(String keyspace, String columnFamilyName) {
@@ -244,15 +235,6 @@ public class HectorBasedHecubaClientManager<K> extends HecubaClientManager<K> {
 
 		final ColumnFamilyDefinition cfDef = HFactory.createColumnFamilyDefinition(keyspace, columnFamilyName);
 		cluster.addColumnFamily(cfDef);
-	}
-
-	/**
-	 * Removes a column family.
-	 *
-	 * @param columnFamilyName - name of the column family to be removed.
-	 */
-	public void dropColumnFamily(String keyspace, String columnFamilyName) {
-		cluster.dropColumnFamily(keyspace, columnFamilyName);
 	}
 
 	/**
