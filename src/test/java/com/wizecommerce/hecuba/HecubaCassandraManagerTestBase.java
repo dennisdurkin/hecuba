@@ -1596,24 +1596,22 @@ public abstract class HecubaCassandraManagerTestBase extends CassandraTestBase {
 		}
 		cassandraManager.updateRow(objectId, columns, timestamps, ttls);
 
-
 		CassandraColumn testColumn = null;
 		for (String columnName : columns.keySet()) {
 			testColumn = cassandraManager.readColumnInfo(objectId, columnName);
 			assertEquals(columnName, testColumn.getName());
 
+			final boolean timeStampAvailable = timestamps != null && timestamps.get(columnName) != null && timestamps.get(columnName) > 0;
+			final long expected = timeStampAvailable ? timestamps.get(columnName) : System.currentTimeMillis();
+			final long actual = timeStampAvailable ? testColumn.getTimestamp() : convertToJavaTimestamp(testColumn.getTimestamp());
+			compareDates(expected, actual);
 
-			final boolean timeStampAvailable = timestamps != null && timestamps.get(columnName) != null &&
-					timestamps.get(columnName) > 0;
-					final long expected = timeStampAvailable ? timestamps.get(columnName) : System.currentTimeMillis();
-					final long actual = timeStampAvailable ? testColumn.getTimestamp() : convertToJavaTimestamp(
-							testColumn.getTimestamp());
-					compareDates(expected, actual);
-
-
-					final boolean ttlAvailable = ttls != null && ttls.get(columnName) != null && ttls.get(columnName) > 0;
-					assertEquals(ttlAvailable ? ttls.get(columnName) : 0, testColumn.getTtl());
-					assertEquals(columns.get(columnName), testColumn.getValue());
+			final boolean ttlAvailable = ttls != null && ttls.get(columnName) != null && ttls.get(columnName) > 0;
+			int expectedTTL = ttlAvailable ? ttls.get(columnName) : 0;
+			int actualTTL = testColumn.getTtl();
+			// TTL should be within 20 seconds of each other (CQL returns remaining time to live)
+			assertTrue(Math.abs(expectedTTL - actualTTL) < 20);
+			assertEquals(columns.get(columnName), testColumn.getValue());
 		}
 	}
 
