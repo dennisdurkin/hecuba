@@ -28,6 +28,8 @@ public class DataStaxCassandraResultSet<K> extends AbstractCassandraResultSet<K,
 		this.durationNanos = durationNanos;
 		this.keyType = keyType;
 		this.valueTypes = valueTypes;
+
+		extractRow();
 	}
 
 	@SuppressWarnings("unchecked")
@@ -175,7 +177,7 @@ public class DataStaxCassandraResultSet<K> extends AbstractCassandraResultSet<K,
 
 	@Override
 	public boolean hasResults() {
-		return hasNext();
+		return getColumnNames().size() > 0;
 	}
 
 	@Override

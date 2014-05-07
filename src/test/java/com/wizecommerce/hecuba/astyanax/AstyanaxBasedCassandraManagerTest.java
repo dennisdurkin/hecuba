@@ -15,8 +15,7 @@
 package com.wizecommerce.hecuba.astyanax;
 
 import java.io.IOException;
-
-import org.mortbay.util.MultiMap;
+import java.util.Map;
 
 import com.netflix.astyanax.serializers.LongSerializer;
 import com.wizecommerce.hecuba.CassandraParamsBean;
@@ -30,7 +29,7 @@ public class AstyanaxBasedCassandraManagerTest extends HecubaCassandraManagerTes
 	}
 
 	@Override
-	protected MultiMap getData(String columnFamilyName) {
+	protected Map<String, Map<String, Object>> getData(String columnFamilyName) {
 		return null;
 	}
 

@@ -15,10 +15,9 @@
 package com.wizecommerce.hecuba.hector;
 
 import java.io.IOException;
+import java.util.Map;
 
 import me.prettyprint.cassandra.serializers.LongSerializer;
-
-import org.mortbay.util.MultiMap;
 
 import com.wizecommerce.hecuba.CassandraParamsBean;
 import com.wizecommerce.hecuba.HecubaCassandraManagerTestBase;
@@ -31,7 +30,7 @@ public class HectorBasedCassandraManagerTest extends HecubaCassandraManagerTestB
 	}
 
 	@Override
-	protected MultiMap getData(String columnFamilyName) {
+	protected Map<String, Map<String, Object>> getData(String columnFamilyName) {
 		return null;
 	}
 

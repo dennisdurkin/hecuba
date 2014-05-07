@@ -1,8 +1,7 @@
 package com.wizecommerce.hecuba.datastax;
 
 import java.io.IOException;
-
-import org.mortbay.util.MultiMap;
+import java.util.Map;
 
 import com.datastax.driver.core.DataType;
 import com.wizecommerce.hecuba.CassandraParamsBean;
@@ -16,7 +15,7 @@ public class DataStaxBasedCassandraManagerTest extends HecubaCassandraManagerTes
 	}
 
 	@Override
-	protected MultiMap getData(String columnFamilyName) {
+	protected Map<String, Map<String, Object>> getData(String columnFamilyName) {
 		return null;
 	}
 

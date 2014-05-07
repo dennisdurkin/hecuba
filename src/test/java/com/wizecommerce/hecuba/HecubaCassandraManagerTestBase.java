@@ -14,24 +14,10 @@
 
 package com.wizecommerce.hecuba;
 
-import static junit.framework.Assert.assertEquals;
-import static junit.framework.Assert.assertFalse;
-import static junit.framework.Assert.assertNotNull;
-import static junit.framework.Assert.assertNull;
-import static junit.framework.Assert.assertTrue;
+import static junit.framework.Assert.*;
 
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.Date;
-import java.util.GregorianCalendar;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Random;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.TimeUnit;
 
 import org.apache.commons.collections.CollectionUtils;
@@ -103,14 +89,9 @@ public abstract class HecubaCassandraManagerTestBase extends CassandraTestBase {
 
 		final int maxResultSetSize = 120;
 
-		CassandraParamsBean bean = new CassandraParamsBean();
-		bean.setClustername(CLUSTER_NAME);
-		bean.setLocationURLs(LOCATION);
-		bean.setThriftPorts(PORT);
-		bean.setKeyspace(KEYSPACE);
+		CassandraParamsBean bean = getDefaultCassandraParamsBean(columnFamily);
 		bean.setMaxSiColumnCount(maxResultSetSize);
 		bean.setMaxColumnCount(maxResultSetSize);
-		bean.setColumnFamily(columnFamily);
 		bean.setSiColumns("MySecondaryKey_1:MySecondaryKey_2");
 
 		//Run all generic tests to verify standard behavior is still functional.
@@ -168,14 +149,9 @@ public abstract class HecubaCassandraManagerTestBase extends CassandraTestBase {
 
 		final int maxResultSetSize = 120;
 
-		CassandraParamsBean bean = new CassandraParamsBean();
-		bean.setClustername(CLUSTER_NAME);
-		bean.setLocationURLs(LOCATION);
-		bean.setThriftPorts(PORT);
-		bean.setKeyspace(KEYSPACE);
+		CassandraParamsBean bean = getDefaultCassandraParamsBean(columnFamily);
 		bean.setMaxSiColumnCount(maxResultSetSize);
 		bean.setMaxColumnCount(maxResultSetSize);
-		bean.setColumnFamily(columnFamily);
 		bean.setSiColumns("MySecondaryKey_1:MySecondaryKey_2");
 
 		// retrieve the cassandra manager.
@@ -257,12 +233,7 @@ public abstract class HecubaCassandraManagerTestBase extends CassandraTestBase {
 	public void testUpdateRowScenario15() throws Exception {
 		String columnFamily = "testUpdateRowScenario15";
 
-		CassandraParamsBean bean = new CassandraParamsBean();
-		bean.setClustername(CLUSTER_NAME);
-		bean.setLocationURLs(LOCATION);
-		bean.setThriftPorts(PORT);
-		bean.setKeyspace(KEYSPACE);
-		bean.setColumnFamily(columnFamily);
+		CassandraParamsBean bean = getDefaultCassandraParamsBean(columnFamily);
 		bean.setSiColumns("MySecondaryKey_1:MySecondaryKey_2");
 		runSecondaryIndexTests(bean);
 
@@ -443,12 +414,7 @@ public abstract class HecubaCassandraManagerTestBase extends CassandraTestBase {
 	public void testUpdateRowScenario14() throws Exception {
 		String columnFamily = "testUpdateRowScenario14";
 
-		CassandraParamsBean bean = new CassandraParamsBean();
-		bean.setClustername(CLUSTER_NAME);
-		bean.setLocationURLs(LOCATION);
-		bean.setThriftPorts(PORT);
-		bean.setKeyspace(KEYSPACE);
-		bean.setColumnFamily(columnFamily);
+		CassandraParamsBean bean = getDefaultCassandraParamsBean(columnFamily);
 
 		// create secondary index on all column names.
 		bean.setSiByColumnsPattern(".*");
@@ -578,14 +544,7 @@ public abstract class HecubaCassandraManagerTestBase extends CassandraTestBase {
 		String columnFamily = "testReadColumnSlice";
 		logger.info("Testing Hector read column slice");
 
-		CassandraParamsBean bean = new CassandraParamsBean();
-		bean.setClustername(CLUSTER_NAME);
-		bean.setLocationURLs(LOCATION);
-		bean.setThriftPorts(PORT);
-		bean.setKeyspace(KEYSPACE);
-		bean.setColumnFamily(columnFamily);
-
-		HecubaClientManager<Long> cassandraManager = getHecubaClientManager(bean);
+		HecubaClientManager<Long> cassandraManager = getHecubaClientManager(columnFamily);
 
 		HashMap<String, Object> row = new HashMap<String, Object>();
 
@@ -704,14 +663,7 @@ public abstract class HecubaCassandraManagerTestBase extends CassandraTestBase {
 		String columnFamily = "testReadColumnSliceMultipleKeys";
 		logger.info("Testing Hector read column slice with multiple keys");
 
-		CassandraParamsBean bean = new CassandraParamsBean();
-		bean.setClustername(CLUSTER_NAME);
-		bean.setLocationURLs(LOCATION);
-		bean.setThriftPorts(PORT);
-		bean.setKeyspace(KEYSPACE);
-		bean.setColumnFamily(columnFamily);
-
-		HecubaClientManager<Long> cassandraManager = getHecubaClientManager(bean);
+		HecubaClientManager<Long> cassandraManager = getHecubaClientManager(columnFamily);
 		HashMap<String, Object> row1 = new HashMap<String, Object>();
 
 		/**********************************************************/
@@ -958,12 +910,7 @@ public abstract class HecubaCassandraManagerTestBase extends CassandraTestBase {
 		String columnFamily = "testReadAllColumns";
 		logger.info("Testing Hector readAllColumns for single key");
 
-		CassandraParamsBean bean = new CassandraParamsBean();
-		bean.setClustername(CLUSTER_NAME);
-		bean.setLocationURLs(LOCATION);
-		bean.setThriftPorts(PORT);
-		bean.setKeyspace(KEYSPACE);
-		bean.setColumnFamily(columnFamily);
+		CassandraParamsBean bean = getDefaultCassandraParamsBean(columnFamily);
 
 		HecubaClientManager<Long> cassandraManager = getHecubaClientManager(bean);
 		Map<String, Object> row = new HashMap<String, Object>();
@@ -1002,14 +949,7 @@ public abstract class HecubaCassandraManagerTestBase extends CassandraTestBase {
 		String columnFamily = "testReadColumnsMultipleKeys";
 		logger.info("Testing readColumns with multiple keys");
 
-		CassandraParamsBean bean = new CassandraParamsBean();
-		bean.setClustername(CLUSTER_NAME);
-		bean.setLocationURLs(LOCATION);
-		bean.setThriftPorts(PORT);
-		bean.setKeyspace(KEYSPACE);
-		bean.setColumnFamily(columnFamily);
-
-		HecubaClientManager<Long> cassandraManager = getHecubaClientManager(bean);
+		HecubaClientManager<Long> cassandraManager = getHecubaClientManager(columnFamily);
 
 		/***********************************/
 		/****** TEST CASSANDRA ROWS ********/
@@ -1200,12 +1140,7 @@ public abstract class HecubaCassandraManagerTestBase extends CassandraTestBase {
 	public void testUpdateRowScenario13() {
 		String columnFamily = "testUpdateRowScenario13";
 
-		CassandraParamsBean bean = new CassandraParamsBean();
-		bean.setClustername(CLUSTER_NAME);
-		bean.setLocationURLs(LOCATION);
-		bean.setThriftPorts(PORT);
-		bean.setKeyspace(KEYSPACE);
-		bean.setColumnFamily(columnFamily);
+		CassandraParamsBean bean = getDefaultCassandraParamsBean(columnFamily);
 		bean.setSiColumns("MySecondaryKey_1:MySecondaryKey_2");
 
 
@@ -1765,12 +1700,7 @@ public abstract class HecubaCassandraManagerTestBase extends CassandraTestBase {
 	public void testRetrieveSecondaryIdxKeys() throws Exception {
 		String columnFamily = "testRetrieveSecondaryIdxKeys";
 
-		CassandraParamsBean bean = new CassandraParamsBean();
-		bean.setClustername(CLUSTER_NAME);
-		bean.setLocationURLs(LOCATION);
-		bean.setThriftPorts(PORT);
-		bean.setKeyspace(KEYSPACE);
-		bean.setColumnFamily(columnFamily);
+		CassandraParamsBean bean = getDefaultCassandraParamsBean(columnFamily);
 		bean.setSiColumns("MySecondaryKey");
 
 		// retrieve the cassandra manager.
@@ -1828,12 +1758,7 @@ public abstract class HecubaCassandraManagerTestBase extends CassandraTestBase {
 	public void testUpdateRowScenario17() throws Exception {
 		String columnFamily = "testUpdateRowScenario17";
 
-		CassandraParamsBean bean = new CassandraParamsBean();
-		bean.setClustername(CLUSTER_NAME);
-		bean.setLocationURLs(LOCATION);
-		bean.setThriftPorts(PORT);
-		bean.setKeyspace(KEYSPACE);
-		bean.setColumnFamily(columnFamily);
+		CassandraParamsBean bean = getDefaultCassandraParamsBean(columnFamily);
 		bean.setSiColumns("MySecondaryKey_1:MySecondaryKey_2");
 
 		// retrieve the cassandra manager.
@@ -1930,12 +1855,7 @@ public abstract class HecubaCassandraManagerTestBase extends CassandraTestBase {
 	public void testSecondaryIndexMultiGet() throws Exception {
 		String columnFamily = "testSecondaryIndexMultiGet";
 
-		CassandraParamsBean bean = new CassandraParamsBean();
-		bean.setClustername(CLUSTER_NAME);
-		bean.setLocationURLs(LOCATION);
-		bean.setThriftPorts(PORT);
-		bean.setKeyspace(KEYSPACE);
-		bean.setColumnFamily(columnFamily);
+		CassandraParamsBean bean = getDefaultCassandraParamsBean(columnFamily);
 		bean.setSiColumns("MySecondaryKey_1:MySecondaryKey_2");
 
 		//Large SecondIndex result set.
