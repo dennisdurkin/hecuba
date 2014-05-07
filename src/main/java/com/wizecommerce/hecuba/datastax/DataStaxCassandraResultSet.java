@@ -19,7 +19,6 @@ public class DataStaxCassandraResultSet<K> extends AbstractCassandraResultSet<K,
 	private Map<String, Object> nextRow = new LinkedHashMap<>();
 	private K currentKey;
 	private K nextKey;
-	private boolean firstTime = true;
 	private long durationNanos;
 
 	public DataStaxCassandraResultSet(ResultSet rs, DataType keyType, Map<String, DataType> valueTypes, long durationNanos) {
@@ -96,27 +95,17 @@ public class DataStaxCassandraResultSet<K> extends AbstractCassandraResultSet<K,
 	}
 
 	public boolean hasNext() {
-		if (!firstTime) {
-			return nextKey != null;
-		}
-		if (currentKey == null) {
-			extractRow();
-		}
-		return currentKey != null;
+		return nextKey != null;
 	}
 
 	public void next() {
-		if (!firstTime) {
-			currentKey = nextKey;
-			currentRow = nextRow;
+		currentKey = nextKey;
+		currentRow = nextRow;
 
-			nextKey = null;
-			nextRow = new LinkedHashMap<>();
+		nextKey = null;
+		nextRow = new LinkedHashMap<>();
 
-			extractRow();
-		} else {
-			firstTime = false;
-		}
+		extractRow();
 	}
 
 	@Override

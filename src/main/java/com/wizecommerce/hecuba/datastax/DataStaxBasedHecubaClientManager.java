@@ -207,25 +207,61 @@ public class DataStaxBasedHecubaClientManager<K> extends HecubaClientManager<K> 
 
 	@Override
 	public CassandraResultSet<K, String> readColumnSlice(K key, String start, String end, boolean reversed, int count) {
-		String query = "select * from " + columnFamily + " where key=? and column1 >= ? and column1 <= ? limit ?";
+		List<Object> values = new ArrayList<>();
+		StringBuilder builder = new StringBuilder();
+		builder.append("select * from " + columnFamily + " where key=?");
+		values.add(convertKey(key));
 
-		if (reversed) {
-			// TODO: try to use "order by"
-			throw new UnsupportedOperationException("Reversed is unsupported currently");
+		if (start != null) {
+			builder.append(" and column1 >= ?");
+			values.add(start);
 		}
 
-		return execute(query, convertKey(key), start, end, count);
+		if (end != null) {
+			builder.append(" and column1 <= ?");
+			values.add(end);
+		}
+
+		if (reversed) {
+			builder.append(" order by column1 desc");
+		}
+
+		if (count > 0) {
+			builder.append(" limit ?");
+			values.add(count);
+		}
+
+		return execute(builder.toString(), values.toArray());
 	}
 
 	@Override
 	public CassandraResultSet<K, String> readColumnSlice(Set<K> keys, String start, String end, boolean reversed, int count) {
-		String query = "select * from " + columnFamily + " where key in ? and column1 >= ? and column1 <= ? limit ?";
+		List<Object> values = new ArrayList<>();
+		StringBuilder builder = new StringBuilder();
+		builder.append("select * from " + columnFamily + " where key in ?");
+		values.add(convertKeys(keys));
 
-		if (reversed) {
-			throw new UnsupportedOperationException("Reversed is unsupported currently");
+		if (start != null) {
+			builder.append(" and column1 >= ?");
+			values.add(start);
 		}
 
-		return execute(query, convertKeys(keys), start, end, count);
+		if (end != null) {
+			builder.append(" and column1 <= ?");
+			values.add(end);
+		}
+
+		if (reversed) {
+			builder.append(" order by column1 desc");
+		}
+
+		if (count > 0) {
+			//TODO: Need to limit count per key, not overall count...is that even possible with CQL?
+			builder.append(" limit ?");
+			values.add(count);
+		}
+
+		return execute(builder.toString(), values.toArray());
 	}
 
 	@Override
