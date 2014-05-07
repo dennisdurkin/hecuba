@@ -3,6 +3,7 @@ package com.wizecommerce.hecuba.datastax;
 import java.nio.ByteBuffer;
 import java.util.*;
 
+import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang.math.NumberUtils;
 import org.apache.log4j.BasicConfigurator;
 import org.apache.log4j.ConsoleAppender;
@@ -183,12 +184,28 @@ public class DataStaxBasedHecubaClientManager<K> extends HecubaClientManager<K> 
 
 	@Override
 	public CassandraColumn readColumnInfo(K key, String columnName) {
-		// TODO Auto-generated method stub
+		String query = "select key, column1, value, writetime(value), ttl(value) from " + columnFamily + " where key=? and column1=?";
+
+		PreparedStatement stmt = statementCache.getUnchecked(query);
+
+		BoundStatement bind = stmt.bind(convertKey(key), columnName);
+		ResultSet rs = session.execute(bind);
+
+		Iterator<Row> iterator = rs.iterator();
+		if (iterator.hasNext()) {
+			Row row = iterator.next();
+			return new CassandraColumn(row.getString("column1"), row.getString("value"), row.getLong("writetime(value)"), row.getInt("ttl(value)"));
+		}
+
 		return null;
 	}
 
 	@Override
 	public CassandraResultSet<K, String> readColumns(K key, List<String> columnNames) throws Exception {
+		if (CollectionUtils.isEmpty(columnNames)) {
+			return readAllColumns(key);
+		}
+
 		String query = "select * from " + columnFamily + " where key=? and column1 in ?";
 
 		CassandraResultSet<K, String> result = execute(query, convertKey(key), columnNames);
@@ -198,6 +215,10 @@ public class DataStaxBasedHecubaClientManager<K> extends HecubaClientManager<K> 
 
 	@Override
 	public CassandraResultSet<K, String> readColumns(Set<K> keys, List<String> columnNames) throws Exception {
+		if (CollectionUtils.isEmpty(columnNames)) {
+			return readAllColumns(keys);
+		}
+
 		String query = "select * from " + columnFamily + " where key in ? and column1 in ?";
 
 		CassandraResultSet<K, String> result = execute(query, convertKeys(keys), columnNames);
@@ -256,7 +277,7 @@ public class DataStaxBasedHecubaClientManager<K> extends HecubaClientManager<K> 
 		}
 
 		if (count > 0) {
-			//TODO: Need to limit count per key, not overall count...is that even possible with CQL?
+			// TODO: Need to limit count per key, not overall count...is that even possible with CQL?
 			builder.append(" limit ?");
 			values.add(count);
 		}
