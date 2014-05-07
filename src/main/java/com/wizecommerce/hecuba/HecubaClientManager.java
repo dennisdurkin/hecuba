@@ -205,10 +205,6 @@ public abstract class HecubaClientManager<K> {
 	 */
 	public abstract void updateByteBuffer(K key, String columnName, ByteBuffer value);
 
-	public abstract void createKeyspace(String keyspace);
-
-	public abstract void createKeyspaceAndColumnFamilies(String keyspace, List<ColumnFamilyInfo> columnFamilies);
-
 	/**
 	 * Updates the value of the column in the given row (identified by the key).
 	 * <p/>
@@ -273,12 +269,6 @@ public abstract class HecubaClientManager<K> {
 	public void updateInteger(K key, String columnName, Integer value) {
 		updateString(key, columnName, value.toString());
 	}
-
-	/**
-	 * @param columnFamilyName - name of the column family to be created.
-	 */
-	public abstract void addColumnFamily(String keyspace, String columnFamilyName);
-
 
 	// ====================================================================================
 

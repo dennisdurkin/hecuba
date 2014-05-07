@@ -46,7 +46,6 @@ import com.netflix.astyanax.connectionpool.NodeDiscoveryType;
 import com.netflix.astyanax.connectionpool.OperationResult;
 import com.netflix.astyanax.connectionpool.exceptions.ConnectionException;
 import com.netflix.astyanax.connectionpool.impl.*;
-import com.netflix.astyanax.ddl.KeyspaceDefinition;
 import com.netflix.astyanax.impl.AstyanaxConfigurationImpl;
 import com.netflix.astyanax.model.*;
 import com.netflix.astyanax.query.ColumnQuery;
@@ -78,17 +77,6 @@ public class AstyanaxBasedHecubaClientManager<K> extends HecubaClientManager<K> 
 
 	public AstyanaxBasedHecubaClientManager() {
 
-	}
-
-	public AstyanaxBasedHecubaClientManager(String clusterName, String locationUrls, String port, String keyspaceName,
-			String columnFamily, Serializer<K> keySerializer) {
-
-		super(clusterName, locationUrls, port, keyspaceName, columnFamily);
-
-		initialize(clusterName, locationUrls, port, keyspaceName);
-
-		this.columnFamily = new ColumnFamily<K, String>(columnFamily, keySerializer, StringSerializer.get());
-		this.keySerializer = keySerializer;
 	}
 
 	public AstyanaxBasedHecubaClientManager(CassandraParamsBean parameters, Serializer<K> keySerializer) {
@@ -215,12 +203,6 @@ public class AstyanaxBasedHecubaClientManager<K> extends HecubaClientManager<K> 
 		}
 	}
 
-	@Override
-	public void createKeyspace(String keyspace) {
-
-		createKeyspaceAndColumnFamilies(keyspace, null);
-	}
-
 	public AstyanaxContext<Cluster> initiateClusterContext(String clusterName) {
 		clusterContext = new AstyanaxContext.Builder().forCluster(clusterName).withAstyanaxConfiguration(
 				new AstyanaxConfigurationImpl()).withConnectionPoolConfiguration(new ConnectionPoolConfigurationImpl(
@@ -232,24 +214,6 @@ public class AstyanaxBasedHecubaClientManager<K> extends HecubaClientManager<K> 
 		return clusterContext;
 	}
 
-	@Override
-	public void addColumnFamily(String keyspace, String columnFamilyName) {
-		try {
-			if (keyspace != null) {
-
-				clusterContext.getEntity().addColumnFamily(
-						clusterContext.getEntity().makeColumnFamilyDefinition().setName(columnFamilyName)
-						.setComparatorType("UTF8Type").setKeyValidationClass("UTF8Type"));
-				Thread.sleep(2000);
-
-			}
-		} catch (ConnectionException e) {
-			log.warn(String.format("Couldn't add column family %s under %s keyspace", columnFamilyName, keyspace), e);
-		} catch (InterruptedException e) {
-			log.warn(String.format("Couldn't add column family %s under %s keyspace", columnFamilyName, keyspace), e);
-		}
-
-	}
 	@Override
 	public void updateRow(K key, Map<String, Object> row, Map<String, Long> timestamps, Map<String, Integer> ttls) throws Exception {
 		// Inserting data
@@ -577,45 +541,6 @@ public class AstyanaxBasedHecubaClientManager<K> extends HecubaClientManager<K> 
 		}
 
 		return null;
-	}
-
-	@Override
-	public void createKeyspaceAndColumnFamilies(String keyspace, List<ColumnFamilyInfo> columnFamilies) {
-		AstyanaxContext<Cluster> clusterContext = initiateClusterContext(clusterName);
-		try {
-			Cluster cluster = clusterContext.getEntity();
-
-			Map<String, String> stratOptions = new HashMap<String, String>();
-			stratOptions.put("replication_factor", "1");
-
-			KeyspaceDefinition ksDef = cluster.makeKeyspaceDefinition();
-
-			ksDef.setName(keyspace).setStrategyOptions(stratOptions).setStrategyClass("SimpleStrategy");
-
-			if (columnFamilies != null) {
-				for (ColumnFamilyInfo columnFamilyInfo : columnFamilies) {
-					ksDef.addColumnFamily(cluster.makeColumnFamilyDefinition().setName(columnFamilyInfo.getName())
-							.setComparatorType(columnFamilyInfo.getComparatorType())
-							.setKeyValidationClass(columnFamilyInfo.getKeyValidationClass())
-							.setDefaultValidationClass(
-									columnFamilyInfo.getDefaultValidationClass()));
-				}
-			}
-
-			cluster.addKeyspace(ksDef);
-
-			Thread.sleep(2000);
-
-			initialize(clusterName, locationURLs, ports, keyspace);
-
-		} catch (ConnectionException e) {
-			log.error("Error creating keyspace and CFs, " + keyspace + ", " + columnFamilies, e);
-		} catch (InterruptedException e) {
-			log.error("Thread interrupted while creating keyspace and CFs, " + keyspace + ", " + columnFamilies, e);
-		} finally {
-			clusterContext.shutdown();
-		}
-
 	}
 
 	@Override

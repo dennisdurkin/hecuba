@@ -23,7 +23,10 @@ import com.google.common.cache.LoadingCache;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
-import com.wizecommerce.hecuba.*;
+import com.wizecommerce.hecuba.CassandraColumn;
+import com.wizecommerce.hecuba.CassandraParamsBean;
+import com.wizecommerce.hecuba.CassandraResultSet;
+import com.wizecommerce.hecuba.HecubaClientManager;
 import com.wizecommerce.hecuba.util.ClientManagerUtils;
 
 public class DataStaxBasedHecubaClientManager<K> extends HecubaClientManager<K> {
@@ -68,24 +71,6 @@ public class DataStaxBasedHecubaClientManager<K> extends HecubaClientManager<K> 
 		this.consistencyLevel = ConsistencyLevel.LOCAL_ONE;
 
 		init();
-	}
-
-	@Override
-	public void addColumnFamily(String keyspace, String columnFamilyName) {
-		// TODO Auto-generated method stub
-
-	}
-
-	@Override
-	public void createKeyspace(String keyspace) {
-		// TODO Auto-generated method stub
-
-	}
-
-	@Override
-	public void createKeyspaceAndColumnFamilies(String keyspace, List<ColumnFamilyInfo> columnFamilies) {
-		// TODO Auto-generated method stub
-
 	}
 
 	@Override

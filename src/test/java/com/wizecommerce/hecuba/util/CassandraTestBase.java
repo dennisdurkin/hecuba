@@ -281,12 +281,18 @@ public abstract class CassandraTestBase {
 
 	protected abstract void tearDown();
 
-	public abstract HecubaClientManager<Long> getHecubaClientManager(String clusterName, String locationURL,
-																	 String ports, String keyspace, String columnFamily);
-
 	public abstract HecubaClientManager<Long> getHecubaClientManager(CassandraParamsBean paramsBean);
 
 	public HecubaClientManager<Long> getHecubaClientManager(String columnFamily) {
-		return getHecubaClientManager(CLUSTER_NAME, LOCATION, PORT, KEYSPACE, columnFamily);
+		CassandraParamsBean params = new CassandraParamsBean();
+
+		params.setColumnFamily(columnFamily);
+		params.setClustername(CLUSTER_NAME);
+		params.setLocationURLs(LOCATION);
+		params.setThriftPorts(PORT);
+		params.setCqlPort(CQL_PORT);
+		params.setKeyspace(KEYSPACE);
+
+		return getHecubaClientManager(params);
 	}
 }

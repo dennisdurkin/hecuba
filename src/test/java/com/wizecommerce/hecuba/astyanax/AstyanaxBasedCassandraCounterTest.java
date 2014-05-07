@@ -27,12 +27,6 @@ public class AstyanaxBasedCassandraCounterTest extends CassandraCounterTestBase 
 		super(AstyanaxBasedCassandraCounterTest.class.getName());
 	}
 
-	public HecubaClientManager<Long> getHecubaClientManager(String clusterName, String locationURL, String ports,
-															String keyspace, String columnFamily) {
-		return new AstyanaxBasedHecubaClientManager<Long>(clusterName, locationURL, ports, keyspace, columnFamily,
-				LongSerializer.get());
-	}
-
 	public HecubaClientManager<Long> getHecubaClientManager(CassandraParamsBean paramsBean) {
 		return new AstyanaxBasedHecubaClientManager<Long>(paramsBean, LongSerializer.get());
 	}

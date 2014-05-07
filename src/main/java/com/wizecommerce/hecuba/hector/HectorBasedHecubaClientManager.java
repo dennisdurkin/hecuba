@@ -26,7 +26,6 @@ import me.prettyprint.cassandra.model.thrift.ThriftCounterColumnQuery;
 import me.prettyprint.cassandra.serializers.StringSerializer;
 import me.prettyprint.cassandra.service.CassandraHost;
 import me.prettyprint.cassandra.service.CassandraHostConfigurator;
-import me.prettyprint.cassandra.service.ThriftKsDef;
 import me.prettyprint.cassandra.service.template.ColumnFamilyResult;
 import me.prettyprint.cassandra.service.template.ColumnFamilyTemplate;
 import me.prettyprint.cassandra.service.template.ColumnFamilyUpdater;
@@ -36,8 +35,6 @@ import me.prettyprint.hector.api.ConsistencyLevelPolicy;
 import me.prettyprint.hector.api.Keyspace;
 import me.prettyprint.hector.api.Serializer;
 import me.prettyprint.hector.api.beans.*;
-import me.prettyprint.hector.api.ddl.ColumnFamilyDefinition;
-import me.prettyprint.hector.api.ddl.KeyspaceDefinition;
 import me.prettyprint.hector.api.exceptions.HectorException;
 import me.prettyprint.hector.api.factory.HFactory;
 import me.prettyprint.hector.api.mutation.MutationResult;
@@ -80,17 +77,6 @@ public class HectorBasedHecubaClientManager<K> extends HecubaClientManager<K> {
 	protected Serializer<K> keySerializer;
 	protected ThriftColumnFamilyTemplate<String, K> secondaryIndexedColumnFamilyTemplate;
 
-
-	/**
-	 * WARNING: This constructor has been deprecated, please Use {@link HectorBasedHecubaClientManager(com.wizecommerce.hecuba.CassandraParamsBean, me.prettyprint.hector.api.Serializer)} instead
-	 *
-	 */
-	@Deprecated
-	public HectorBasedHecubaClientManager(String clusterName, String locationURL, String ports, String keyspace,
-			String columnFamily, Serializer<K> keySerializer) {
-		super(clusterName, locationURL, ports, keyspace, columnFamily);
-		init(keySerializer);
-	}
 
 	public HectorBasedHecubaClientManager(CassandraParamsBean parameters, Serializer<K> keySerializer) {
 		super(parameters);
@@ -201,40 +187,6 @@ public class HectorBasedHecubaClientManager<K> extends HecubaClientManager<K> {
 		final ColumnFamilyUpdater<K, String> updater = columnFamilyLocal.createUpdater(key);
 		updater.setByteBuffer(columnName, value);
 		columnFamilyLocal.update(updater);
-	}
-
-	/**
-	 * Creates a keyspace within the cluster.
-	 *
-	 * @param keyspace - name of the keyspace to be created.
-	 */
-	public void createKeyspace(String keyspace) {
-		final ColumnFamilyDefinition cfDef = HFactory.createColumnFamilyDefinition(keyspace, "DynCf");
-		cluster.addKeyspace(new ThriftKsDef(keyspace, "org.apache.cassandra.locator.SimpleStrategy", 1, Arrays.asList(
-				cfDef)));
-	}
-
-	/**
-	 * @param columnFamilyName - name of the column family to be created.
-	 */
-	public void addColumnFamily(String keyspace, String columnFamilyName) {
-		// First check whether we already have this colum family.
-		KeyspaceDefinition keyspaceDescription = cluster.describeKeyspace(keyspace);
-		if (keyspaceDescription == null) {
-			createKeyspace(keyspace);
-		}
-		keyspaceDescription = cluster.describeKeyspace(keyspace);
-		List<ColumnFamilyDefinition> cfDefs = keyspaceDescription.getCfDefs();
-		if (cfDefs != null) {
-			for (ColumnFamilyDefinition cfDef : cfDefs) {
-				if (cfDef.getName().equals(columnFamilyName)) {
-					return;
-				}
-			}
-		}
-
-		final ColumnFamilyDefinition cfDef = HFactory.createColumnFamilyDefinition(keyspace, columnFamilyName);
-		cluster.addColumnFamily(cfDef);
 	}
 
 	/**
@@ -901,15 +853,6 @@ public class HectorBasedHecubaClientManager<K> extends HecubaClientManager<K> {
 
 	ColumnFamilyTemplate<K, String> getColumnFamily() {
 		return columnFamilyTemplates.get(0);
-	}
-
-	@Override
-	public void createKeyspaceAndColumnFamilies(String keyspace, List<ColumnFamilyInfo> columnFamilies) {
-		createKeyspace(keyspace);
-		for (ColumnFamilyInfo columnFamilyInfo : columnFamilies) {
-			addColumnFamily(keyspace, columnFamilyInfo.getName());
-		}
-
 	}
 
 	/**
