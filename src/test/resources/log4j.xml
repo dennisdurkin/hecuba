@@ -14,4 +14,7 @@
 		<appender-ref ref="console" />
 	</root>
 
+	<logger name="org.apache.cassandra.db.Memtable">
+		<level value="fatal"/>
+	</logger>
 </log4j:configuration>

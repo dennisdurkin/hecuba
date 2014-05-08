@@ -188,8 +188,8 @@ public class CassandraParamsBean {
 	}
 
 	public CassandraParamsBean(CassandraParamsBean initialBean) {
-		setClustername(clustername);
-		setColumnFamily(columnFamily);
+		setClustername(initialBean.clustername);
+		setColumnFamily(initialBean.columnFamily);
 		setKeyspace(initialBean.keyspace);
 		setLocationURLs(initialBean.locationURLs);
 		setThriftPorts(initialBean.thriftPorts);
