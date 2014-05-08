@@ -23,7 +23,7 @@ import org.joda.time.format.DateTimeFormatter;
 
 /**
  * @author - Eran Chinthaka Withana
- * @date - Sep 12, 2011
+ * @version - Sep 12, 2011
  */
 public abstract class HecubaConstants {
 

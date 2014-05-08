@@ -215,8 +215,6 @@ public class HectorBasedHecubaClientManager<K> extends HecubaClientManager<K> {
 	}
 
 	public void deleteRow(K key, long timestamp) {
-		final ColumnFamilyTemplate<K, String> columnFamily1 = getColumnFamily();
-
 		timestamp = timestamp > 0 ? timestamp : keysp.createClock();
 
 		if (isSecondaryIndexByColumnNameAndValueEnabled || isSecondaryIndexesByColumnNamesEnabled) {
@@ -474,7 +472,7 @@ public class HectorBasedHecubaClientManager<K> extends HecubaClientManager<K> {
 		// first some fact checking, before going to Cassandra
 		if (isSecondaryIndexByColumnNameAndValueEnabled && Collections.binarySearch(columnsToIndexOnColumnNameAndValue,
 				columnName) >= 0) {
-			return retrieveFromSecodaryIndex(columnName, columnValue);
+			return retrieveFromSecondaryIndex(columnName, columnValue);
 		}
 
 		return null;
@@ -504,16 +502,7 @@ public class HectorBasedHecubaClientManager<K> extends HecubaClientManager<K> {
 		return null;
 	}
 
-	/**
-	 * Enables you to retrieve objects using the mappings found in secondary index table. Its a good idea to make
-	 * sure the given column name and the value are part of a secondary index before doing this call.
-	 *
-	 * @param columnName
-	 * @param columnValue
-	 *
-	 * @return
-	 */
-	private CassandraResultSet<K, String> retrieveFromSecodaryIndex(String columnName, String columnValue) {
+	private CassandraResultSet<K, String> retrieveFromSecondaryIndex(String columnName, String columnValue) {
 		List<K> mappingObjectIds = retrieveKeysFromSecondaryIndex(columnName, columnValue);
 		if (CollectionUtils.isNotEmpty(mappingObjectIds)) {
 			return readAllColumns(new HashSet<K>(mappingObjectIds));
@@ -525,7 +514,7 @@ public class HectorBasedHecubaClientManager<K> extends HecubaClientManager<K> {
 	@Override
 	public CassandraResultSet<K, String> retrieveByColumnNameBasedSecondaryIndex(String columnName) {
 		if (StringUtils.isNotEmpty(columnName) && columnName.matches(secondaryIdxByColumnPattern)) {
-			return retrieveFromSecodaryIndex(columnName, "");
+			return retrieveFromSecondaryIndex(columnName, "");
 		}
 
 		return null;
@@ -535,8 +524,6 @@ public class HectorBasedHecubaClientManager<K> extends HecubaClientManager<K> {
 	/**
 	 * @param parameters
 	 * @param limit      defines the number of **COLUMNS** to return, not the number of rows.
-	 *
-	 * @return
 	 */
 	@Override
 	public CassandraResultSet readAllColumnsBySecondaryIndex(Map<String, String> parameters, int limit) {
@@ -584,14 +571,6 @@ public class HectorBasedHecubaClientManager<K> extends HecubaClientManager<K> {
 	}
 
 
-	/**
-	 * Retrieves all the columns related to a given key.
-	 * Analogous to "Select * from TABLE" in SQL world.
-	 *
-	 * @param key - key of the column to be read.
-	 *
-	 * @return CassandraResultSet (interface to get column values)
-	 */
 	public CassandraResultSet<K, String> readAllColumns(K key) throws HectorException {
 		try {
 			if (maxColumnCount > 0) {
@@ -649,7 +628,7 @@ public class HectorBasedHecubaClientManager<K> extends HecubaClientManager<K> {
 					", Host used = " + queryResult.getHostUsed() + ", Keys = " + Joiner.on(",").join(keys));
 		}
 
-		return new HectorRowSliceResultSet(queryResult);
+		return new HectorRowSliceResultSet<>(queryResult);
 	}
 
 
@@ -691,14 +670,6 @@ public class HectorBasedHecubaClientManager<K> extends HecubaClientManager<K> {
 		}
 	}
 
-	/**
-	 * Reads the value of a column related to a given key.
-	 *
-	 * @param key        - key of the column to be read.
-	 * @param columnName - name of the column to be read.
-	 *
-	 * @return
-	 */
 	public String readString(K key, String columnName) {
 		HColumn<String, String> result = readColumn(key, columnName);
 		return result == null ? null : result.getValue();
@@ -747,7 +718,7 @@ public class HectorBasedHecubaClientManager<K> extends HecubaClientManager<K> {
 	private void configureHectorSpecificProperties() {
 
 		hectorClientConfiguration = new HectorClientConfiguration();
-		final Configuration configuration = ConfigUtils.getInstance().getInstance().getConfiguration();
+		final Configuration configuration = ConfigUtils.getInstance().getConfiguration();
 		hectorClientConfiguration.setLoadBalancingPolicy(configuration.getString(
 				HecubaConstants.HECTOR_LOAD_BALANCING_POLICY, HecubaConstants.HECTOR_LOAD_BALANCY_POLICIES.DynamicLoadBalancingPolicy.name()));
 		hectorClientConfiguration.setMaxActive(configuration.getInteger(HecubaConstants.HECTOR_MAX_ACTIVE_POOLS, 50));
