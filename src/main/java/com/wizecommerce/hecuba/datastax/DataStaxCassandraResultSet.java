@@ -14,6 +14,7 @@ public class DataStaxCassandraResultSet<K> extends AbstractCassandraResultSet<K,
 	private ResultSet rs;
 	private Iterator<Row> rowIterator;
 	private DataType keyType;
+	private DataType columnType;
 	private Map<String, DataType> valueTypes = new HashMap<>();
 	private Map<String, Object> currentRow = new LinkedHashMap<>();
 	private Map<String, Object> nextRow = new LinkedHashMap<>();
@@ -21,11 +22,12 @@ public class DataStaxCassandraResultSet<K> extends AbstractCassandraResultSet<K,
 	private K nextKey;
 	private long durationNanos;
 
-	public DataStaxCassandraResultSet(ResultSet rs, DataType keyType, Map<String, DataType> valueTypes, long durationNanos) {
+	public DataStaxCassandraResultSet(ResultSet rs, DataType keyType, DataType columnType, Map<String, DataType> valueTypes, long durationNanos) {
 		this.rs = rs;
 		this.rowIterator = rs.iterator();
 		this.durationNanos = durationNanos;
 		this.keyType = keyType;
+		this.columnType = columnType;
 		this.valueTypes = valueTypes;
 
 		extractRow();
@@ -35,22 +37,30 @@ public class DataStaxCassandraResultSet<K> extends AbstractCassandraResultSet<K,
 	private void extractRow() {
 		while (rowIterator.hasNext()) {
 			Row row = rowIterator.next();
+
 			K key = (K) getValue(row, "key", keyType);
+
 			if (currentKey == null) {
 				currentKey = key;
-			} else if (!Objects.equal(key, currentKey)) {
-				nextKey = key;
+			}
 
-				String column = row.getString("column1");
-				DataType valueType = valueTypes != null ? valueTypes.get(column) : null;
-				Object value = getValue(row, "value", valueType);
+			String column = getValue(row, "column1", columnType).toString();
+			DataType valueType = null;
+			if (valueTypes != null) {
+				valueType = valueTypes.get(column);
+				if (valueType == null) {
+					valueType = valueTypes.get("*");
+				}
+			}
+			Object value = getValue(row, "value", valueType);
+
+			if (Objects.equal(key, currentKey)) {
+				currentRow.put(column, value);
+			} else {
 				nextRow.put(column, value);
-
+				nextKey = key;
 				break;
 			}
-			String column = row.getString("column1");
-			Object value = row.getString("value");
-			currentRow.put(column, value);
 		}
 	}
 

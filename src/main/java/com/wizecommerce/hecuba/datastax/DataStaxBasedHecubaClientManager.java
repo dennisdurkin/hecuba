@@ -2,12 +2,12 @@ package com.wizecommerce.hecuba.datastax;
 
 import java.nio.ByteBuffer;
 import java.util.*;
+import java.util.concurrent.TimeUnit;
 
 import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.lang.StringUtils;
 import org.apache.commons.lang.math.NumberUtils;
-import org.apache.log4j.BasicConfigurator;
-import org.apache.log4j.ConsoleAppender;
-import org.apache.log4j.PatternLayout;
+import org.apache.commons.lang3.ObjectUtils;
 import org.joda.time.DateTime;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -22,13 +22,14 @@ import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
-import com.wizecommerce.hecuba.CassandraColumn;
-import com.wizecommerce.hecuba.CassandraParamsBean;
-import com.wizecommerce.hecuba.CassandraResultSet;
-import com.wizecommerce.hecuba.HecubaClientManager;
+import com.wizecommerce.hecuba.*;
 import com.wizecommerce.hecuba.util.ClientManagerUtils;
+
+/*
+ * TODO: Exception throwing
+ * TODO: Handle properties (timeouts, CL, etc...)
+ */
 
 public class DataStaxBasedHecubaClientManager<K> extends HecubaClientManager<K> {
 	private static final Logger logger = LoggerFactory.getLogger(DataStaxBasedHecubaClientManager.class);
@@ -55,6 +56,7 @@ public class DataStaxBasedHecubaClientManager<K> extends HecubaClientManager<K> 
 	private Session session;
 
 	private String columnFamily;
+	private String secondaryIndexColumnFamily;
 
 	public DataStaxBasedHecubaClientManager(CassandraParamsBean parameters, DataType keyType) {
 		super(parameters);
@@ -65,6 +67,8 @@ public class DataStaxBasedHecubaClientManager<K> extends HecubaClientManager<K> 
 		this.endpoints = Iterables.toArray(Splitter.on(":").split(parameters.getLocationURLs()), String.class);
 		this.keyspace = parameters.getKeyspace();
 		this.columnFamily = '"' + parameters.getColumnFamily() + '"';
+		// TODO: Get from configuration
+		this.secondaryIndexColumnFamily = '"' + parameters.getColumnFamily() + HecubaConstants.SECONDARY_INDEX_CF_NAME_SUFFIX + '"';
 		this.port = NumberUtils.toInt(parameters.getCqlPort());
 		this.username = parameters.getUsername();
 		this.password = parameters.getPassword();
@@ -129,7 +133,7 @@ public class DataStaxBasedHecubaClientManager<K> extends HecubaClientManager<K> 
 	public Long getCounterValue(K key, String counterColumnName) {
 		String query = "select * from " + columnFamily + " where key=? and column1=?";
 
-		CassandraResultSet<K, String> result = execute(query, ImmutableMap.of(counterColumnName, DataType.counter()), convertKey(key), counterColumnName);
+		CassandraResultSet<K, String> result = execute(query, null, null, ImmutableMap.of(counterColumnName, DataType.counter()), convertKey(key), counterColumnName);
 
 		if (result.hasResults()) {
 			return result.getLong(counterColumnName);
@@ -194,7 +198,10 @@ public class DataStaxBasedHecubaClientManager<K> extends HecubaClientManager<K> 
 		Iterator<Row> iterator = rs.iterator();
 		if (iterator.hasNext()) {
 			Row row = iterator.next();
-			return new CassandraColumn(row.getString("column1"), row.getString("value"), row.getLong("writetime(value)"), row.getInt("ttl(value)"));
+			long timestamp = row.getLong("writetime(value)");
+			int ttl = row.getInt("ttl(value)");
+			String value = row.getString("value");
+			return new CassandraColumn(columnName, value, timestamp, ttl);
 		}
 
 		return null;
@@ -310,9 +317,28 @@ public class DataStaxBasedHecubaClientManager<K> extends HecubaClientManager<K> 
 		return null;
 	}
 
+	@SuppressWarnings("unchecked")
 	@Override
 	public CassandraResultSet<K, String> retrieveBySecondaryIndex(String columnName, String columnValue) {
-		// TODO Auto-generated method stub
+		String query = "select * from " + secondaryIndexColumnFamily + " where key = ?";
+		CassandraResultSet<K, String> keysResultSet = execute(query, DataType.ascii(), keyType, ImmutableMap.of("*", keyType), getSecondaryIndexKey(columnName, columnValue));
+		Set<K> keys = new LinkedHashSet<>();
+		if (keysResultSet.hasResults()) {
+			for (String key : keysResultSet.getColumnNames()) {
+				if (keyType == DataType.bigint()) {
+					keys.add((K) NumberUtils.createLong(key));
+				} else {
+					keys.add((K) key);
+				}
+			}
+
+			try {
+				return readAllColumns(keys);
+			} catch (Exception e) {
+				throw new RuntimeException(e);
+			}
+		}
+
 		return null;
 	}
 
@@ -352,9 +378,9 @@ public class DataStaxBasedHecubaClientManager<K> extends HecubaClientManager<K> 
 		StringBuilder builder = new StringBuilder();
 		List<Object> values = new ArrayList<>();
 
-		if (row.size() > 1) {
-			builder.append("BEGIN UNLOGGED BATCH\n");
-		}
+		builder.append("BEGIN UNLOGGED BATCH\n");
+
+		updateSecondaryIndexes(key, row, timestamps, ttls);
 
 		for (Map.Entry<String, Object> entry : row.entrySet()) {
 			builder.append("\tINSERT INTO " + columnFamily + " (key, column1, value) values (?,?,?)");
@@ -381,9 +407,7 @@ public class DataStaxBasedHecubaClientManager<K> extends HecubaClientManager<K> 
 			builder.append(";\n");
 		}
 
-		if (row.size() > 1) {
-			builder.append("APPLY BATCH;");
-		}
+		builder.append("APPLY BATCH;");
 
 		execute(builder.toString(), values.toArray());
 	}
@@ -392,6 +416,8 @@ public class DataStaxBasedHecubaClientManager<K> extends HecubaClientManager<K> 
 	public void updateString(K key, String columnName, String value, long timestamp, int ttl) {
 		StringBuilder builder = new StringBuilder();
 		List<Object> values = new ArrayList<>();
+
+		updateSecondaryIndexes(key, columnName, value, timestamp, ttl);
 
 		builder.append("INSERT INTO " + columnFamily + "(key, column1, value) values (?,?,?)");
 		values.add(convertKey(key));
@@ -409,6 +435,160 @@ public class DataStaxBasedHecubaClientManager<K> extends HecubaClientManager<K> 
 			builder.append(" USING TTL ?");
 			values.add(ttl);
 		}
+
+		execute(builder.toString(), values.toArray());
+	}
+
+	private void updateSecondaryIndexes(K key, Map<String, Object> row, Map<String, Long> timestamps, Map<String, Integer> ttls) {
+		List<String> secondaryColumnsChanged = null;
+		List<String> secondaryIndexByColumnNameChanges = null;
+
+		// Gather list of secondary index columns that are being changed
+		for (Map.Entry<String, Object> entry : row.entrySet()) {
+			String column = entry.getKey();
+			if (isSecondaryIndexByColumnNameAndValueEnabledForColumn(column)) {
+				if (secondaryColumnsChanged == null) {
+					// Lazy initialize to prevent wasting memory
+					secondaryColumnsChanged = new ArrayList<>();
+				}
+				secondaryColumnsChanged.add(column);
+			}
+			if (isSecondaryIndexByColumnNameEnabledForColumn(column)) {
+				if (secondaryIndexByColumnNameChanges == null) {
+					// Lazy initialize to prevent wasting memory
+					secondaryIndexByColumnNameChanges = new ArrayList<>();
+				}
+				secondaryIndexByColumnNameChanges.add(column);
+			}
+		}
+
+		if (CollectionUtils.isNotEmpty(secondaryColumnsChanged)) {
+			Map<String, String> oldValues = new HashMap<>();
+			try {
+				CassandraResultSet<K, String> readColumns = readColumns(key, secondaryColumnsChanged);
+				for (String column : readColumns.getColumnNames()) {
+					oldValues.put(column, readColumns.getString(column));
+				}
+			} catch (Exception e) {
+				throw new RuntimeException(e);
+			}
+			updateSecondaryIndexes(key, row, timestamps, ttls, secondaryColumnsChanged, oldValues);
+		}
+
+		if (CollectionUtils.isNotEmpty(secondaryIndexByColumnNameChanges)) {
+			updateSecondaryIndexes(key, null, timestamps, ttls, secondaryIndexByColumnNameChanges, null);
+		}
+	}
+
+	private void updateSecondaryIndexes(K key, String columnName, String value, long timestamp, int ttl) {
+		if (isSecondaryIndexByColumnNameAndValueEnabledForColumn(columnName)) {
+			String oldValue = readString(key, columnName);
+			updateSecondaryIndexes(key, columnName, value, timestamp, ttl, oldValue);
+		}
+
+		if (isSecondaryIndexByColumnNameEnabledForColumn(columnName)) {
+			updateSecondaryIndexes(key, columnName, "", timestamp, ttl, "");
+		}
+	}
+
+	private void updateSecondaryIndexes(K key, Map<String, Object> row, Map<String, Long> timestamps, Map<String, Integer> ttls, List<String> columnsChanged,
+			Map<String, String> oldValues) {
+		StringBuilder builder = new StringBuilder();
+		List<Object> values = new ArrayList<>();
+
+		builder.append("BEGIN UNLOGGED BATCH\n");
+
+		if (columnsChanged != null) {
+			for (String columnName : columnsChanged) {
+				String oldValue = oldValues.get(columnName);
+				if (!StringUtils.isBlank(oldValue) && !"null".equalsIgnoreCase(oldValue)) {
+					// Delete old value if there is one (if it's null we'll just be writing it again down below with updated TS and TTL)
+					builder.append("\tDELETE FROM " + secondaryIndexColumnFamily);
+
+					Long timestamp = timestamps != null ? timestamps.get(columnName) : null;
+					if (timestamp != null && timestamp > 0) {
+						builder.append(" USING TIMESTAMP ?");
+						values.add(timestamp);
+					}
+
+					builder.append(" where key = ? and column1 = ?;\n");
+					values.add(getSecondaryIndexKey(columnName, oldValue));
+					values.add(convertKey(key));
+				}
+			}
+		}
+
+		for (String columnName : columnsChanged) {
+			Object value = row.get(columnName);
+			String valueToInsert = ClientManagerUtils.getInstance().convertValueForStorage(value);
+
+			// Insert New Value
+			builder.append("\tINSERT INTO " + secondaryIndexColumnFamily + "(key, column1, value) values (?,?,?)");
+			values.add(getSecondaryIndexKey(columnName, valueToInsert));
+			values.add(convertKey(key));
+			values.add(convertKey(key));
+
+			Long timestamp = timestamps != null ? timestamps.get(columnName) : null;
+			Integer ttl = ttls != null ? ttls.get(columnName) : null;
+			if (timestamp != null && timestamp > 0 && ttl != null && ttl > 0) {
+				builder.append(" USING TIMESTAMP ? and TTL ?");
+				values.add(timestamp);
+				values.add(ttl);
+			} else if (timestamp != null && timestamp > 0) {
+				builder.append(" USING TIMESTAMP ?");
+				values.add(timestamp);
+			} else if (ttl != null && ttl > 0) {
+				builder.append(" USING TTL ?");
+				values.add(ttl);
+			}
+			builder.append(";\n");
+		}
+
+		builder.append("APPLY BATCH;");
+
+		execute(builder.toString(), values.toArray());
+	}
+
+	private void updateSecondaryIndexes(K key, String columnName, String value, long timestamp, int ttl, String oldValue) {
+		StringBuilder builder = new StringBuilder();
+		List<Object> values = new ArrayList<>();
+
+		builder.append("BEGIN UNLOGGED BATCH\n");
+
+		if (!StringUtils.isBlank(oldValue) && !"null".equalsIgnoreCase(oldValue)) {
+			// Delete old value if there is one (if it's null we'll just be writing it again down below with updated TS and TTL)
+			builder.append("\tDELETE FROM " + secondaryIndexColumnFamily);
+
+			if (timestamp > 0) {
+				builder.append(" USING TIMESTAMP ?");
+				values.add(timestamp);
+			}
+
+			builder.append(" where key = ? and column1 = ?;\n");
+			values.add(getSecondaryIndexKey(columnName, oldValue));
+			values.add(convertKey(key));
+		}
+
+		// Insert New Value
+		builder.append("\tINSERT INTO " + secondaryIndexColumnFamily + "(key, column1, value) values (?,?,?)");
+		values.add(getSecondaryIndexKey(columnName, value));
+		values.add(convertKey(key));
+		values.add(convertKey(key));
+
+		if (timestamp > 0 && ttl > 0) {
+			builder.append(" USING TIMESTAMP ? and TTL ?");
+			values.add(timestamp);
+			values.add(ttl);
+		} else if (timestamp > 0) {
+			builder.append(" USING TIMESTAMP ?");
+			values.add(timestamp);
+		} else if (ttl > 0) {
+			builder.append(" USING TTL ?");
+			values.add(ttl);
+		}
+		builder.append(";\n");
+
+		builder.append("APPLY BATCH;");
 
 		execute(builder.toString(), values.toArray());
 	}
@@ -440,10 +620,10 @@ public class DataStaxBasedHecubaClientManager<K> extends HecubaClientManager<K> 
 	}
 
 	private CassandraResultSet<K, String> execute(String query, Object... values) {
-		return execute(query, null, values);
+		return execute(query, null, null, null, values);
 	}
 
-	private CassandraResultSet<K, String> execute(String query, Map<String, DataType> valueTypes, Object... values) {
+	private CassandraResultSet<K, String> execute(String query, DataType keyType, DataType columnType, Map<String, DataType> valueTypes, Object... values) {
 		logger.debug("query = {} : values = {}", query, values);
 		PreparedStatement stmt = statementCache.getUnchecked(query);
 
@@ -452,7 +632,8 @@ public class DataStaxBasedHecubaClientManager<K> extends HecubaClientManager<K> 
 		ResultSet rs = session.execute(bind);
 		long durationNanos = System.nanoTime() - startTimeNanos;
 
-		DataStaxCassandraResultSet<K> cassandraResultSet = new DataStaxCassandraResultSet<>(rs, keyType, valueTypes, durationNanos);
+		DataStaxCassandraResultSet<K> cassandraResultSet = new DataStaxCassandraResultSet<>(rs, ObjectUtils.defaultIfNull(keyType, this.keyType), columnType, valueTypes,
+				durationNanos);
 
 		return cassandraResultSet;
 	}
@@ -487,73 +668,5 @@ public class DataStaxBasedHecubaClientManager<K> extends HecubaClientManager<K> 
 
 	@Override
 	protected void logDownedHosts() {
-	}
-
-	public static void main(String[] args) throws Exception {
-		try {
-			BasicConfigurator.configure(new ConsoleAppender(new PatternLayout("%-4r [%t] %-5p %c %x - %m%n")));
-
-			CassandraParamsBean parameters = new CassandraParamsBean();
-
-			parameters.setColumnFamily("PTitle");
-			parameters.setDataCenter("DC1");
-			parameters.setLocationURLs("v-cass1.nextagqa.com");
-			parameters.setKeyspace("NextagTest");
-
-			DataStaxBasedHecubaClientManager<Long> client = new DataStaxBasedHecubaClientManager<>(parameters, DataType.bigint());
-
-			CassandraResultSet<Long, String> readAllColumns;
-
-			readAllColumns = client.readAllColumns(135573L);
-			System.out.println("readAllColumns = " + readAllColumns);
-
-			readAllColumns = client.readAllColumns(ImmutableSet.of(135573L, 135585L));
-			System.out.println("readAllColumns = " + readAllColumns);
-
-			String readString = client.readString(135573L, "SOURCE_ID");
-			System.out.println("readString = " + readString);
-
-			readAllColumns = client.readColumns(135573L, Arrays.asList("SOURCE_ID", "ID", "CATEGORY_ID"));
-			System.out.println("readColumns = " + readAllColumns);
-
-			readAllColumns = client.readColumns(ImmutableSet.of(135573L, 135585L), Arrays.asList("SOURCE_ID", "ID", "CATEGORY_ID"));
-			System.out.println("readColumns = " + readAllColumns);
-
-			readAllColumns = client.readColumnSlice(135573L, "A", "D", false, 100);
-			System.out.println("readColumnSlice = " + readAllColumns);
-
-			readAllColumns = client.readColumnSlice(ImmutableSet.of(135573L, 135585L), "D", "O", false, 100);
-			System.out.println("readColumnSlice = " + readAllColumns);
-
-			client.updateString(135573L, "DUMMY_COLUMN", DateTime.now().toString(), -1, 1000);
-			readString = client.readString(135573L, "DUMMY_COLUMN");
-			System.out.println("readString = " + readString);
-
-			client.updateRow(135585L, ImmutableMap.of("DUMMY_COLUMN2", (Object) DateTime.now().toString(), "DUMMY_COLUMN3", DateTime.now().toString()),
-					ImmutableMap.of("DUMMY_COLUMN2", -1L), ImmutableMap.of("DUMMY_COLUMN3", 30));
-			readAllColumns = client.readAllColumns(135585L);
-			System.out.println("readAllColumns = " + readAllColumns);
-
-			client.deleteColumn(135573L, "DUMMY_COLUMN");
-			readString = client.readString(135573L, "DUMMY_COLUMN");
-			System.out.println("readString = " + readString);
-
-			client.deleteColumns(135585L, Arrays.asList("DUMMY_COLUMN2", "DUMMY_COLUMN3"));
-			readAllColumns = client.readAllColumns(135585L);
-			System.out.println("readAllColumns = " + readAllColumns);
-
-			client.deleteColumns(135585L, Arrays.asList("DUMMY_COLUMN2", "DUMMY_COLUMN3"));
-			readAllColumns = client.readAllColumns(135585L);
-			System.out.println("readAllColumns = " + readAllColumns);
-
-			client.deleteRow(122741L, DateTime.now().getMillis() * 1000);
-			readAllColumns = client.readAllColumns(115533L);
-			System.out.println("readAllColumns = " + readAllColumns);
-
-			System.exit(0);
-		} catch (Exception e) {
-			e.printStackTrace();
-			System.exit(-1);
-		}
 	}
 }

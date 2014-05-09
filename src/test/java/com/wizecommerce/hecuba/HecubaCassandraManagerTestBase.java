@@ -1538,12 +1538,14 @@ public abstract class HecubaCassandraManagerTestBase extends CassandraTestBase {
 
 		final long startTime = System.nanoTime();
 
-		// assuming this executed within 3 seconds, we should get a result.
+		// assuming this executed within 2 seconds, we should get a result.
 		final CassandraColumn testColumn = cassandraManager.readColumnInfo(objectId, "test_column");
 		assertEquals("test_value", testColumn.getValue());
 
 		assertEquals(500, testColumn.getTimestamp());
-		assertEquals(ttl, testColumn.getTtl());
+		int actualTTL = testColumn.getTtl();
+		// TTL should be within 2 seconds of each other (CQL returns remaining time to live)
+		assertTrue(Math.abs(ttl - actualTTL) < 2);
 		assertEquals("test_column", testColumn.getName());
 	}
 
@@ -1609,8 +1611,8 @@ public abstract class HecubaCassandraManagerTestBase extends CassandraTestBase {
 			final boolean ttlAvailable = ttls != null && ttls.get(columnName) != null && ttls.get(columnName) > 0;
 			int expectedTTL = ttlAvailable ? ttls.get(columnName) : 0;
 			int actualTTL = testColumn.getTtl();
-			// TTL should be within 20 seconds of each other (CQL returns remaining time to live)
-			assertTrue(Math.abs(expectedTTL - actualTTL) < 20);
+			// TTL should be within 2 seconds of each other (CQL returns remaining time to live)
+			assertTrue(Math.abs(expectedTTL - actualTTL) < 2);
 			assertEquals(columns.get(columnName), testColumn.getValue());
 		}
 	}

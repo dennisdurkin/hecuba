@@ -357,7 +357,7 @@ public class HectorBasedHecubaClientManager<K> extends HecubaClientManager<K> {
 		if (secondaryColumnsChanged.size() == 1) {
 			String columnName = secondaryColumnsChanged.get(0);
 			String oldValue = readString(key, columnName);
-			log.info("Updating secondary index for Key = " + key + " column = " + columnName);
+			log.debug("Updating secondary index for Key = " + key + " column = " + columnName);
 			prepareMutatorForSecondaryIndexUpdate(key, allColumnsToBeChanged, secondaryIndexMutator, secondaryIndexCF,
 					columnName, oldValue, ttls);
 		} else {
@@ -661,7 +661,7 @@ public class HectorBasedHecubaClientManager<K> extends HecubaClientManager<K> {
 			}
 			return new HectorResultSet<K, String>(queriedColumns);
 		} catch (HectorException e) {
-			log.info("HecubaClientManager error while retrieving " + columns.size() + " columns for key " +
+			log.error("HecubaClientManager error while retrieving " + columns.size() + " columns for key " +
 					key.toString());
 			if (log.isDebugEnabled()) {
 				log.debug("Caught Exception", e);
