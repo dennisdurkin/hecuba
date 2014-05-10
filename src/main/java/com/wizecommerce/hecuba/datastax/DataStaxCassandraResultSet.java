@@ -181,13 +181,11 @@ public class DataStaxCassandraResultSet<K> extends AbstractCassandraResultSet<K,
 
 	@Override
 	public String toString() {
-		Map<K, Map<String, Object>> allResults = new LinkedHashMap<>();
+		Map<String, Object> map = new LinkedHashMap<>();
+		map.put("key", currentKey);
+		map.put("currentRow", currentRow);
+		map.put("hasNextResult", hasNextResult());
 
-		while (hasNext()) {
-			next();
-			allResults.put(currentKey, currentRow);
-		}
-
-		return gson.toJson(allResults);
+		return gson.toJson(map);
 	}
 }

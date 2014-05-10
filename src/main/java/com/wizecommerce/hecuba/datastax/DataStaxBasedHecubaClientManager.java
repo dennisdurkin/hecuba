@@ -2,13 +2,12 @@ package com.wizecommerce.hecuba.datastax;
 
 import java.nio.ByteBuffer;
 import java.util.*;
-import java.util.concurrent.TimeUnit;
 
 import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.collections.MapUtils;
 import org.apache.commons.lang.StringUtils;
 import org.apache.commons.lang.math.NumberUtils;
 import org.apache.commons.lang3.ObjectUtils;
-import org.joda.time.DateTime;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -80,13 +79,31 @@ public class DataStaxBasedHecubaClientManager<K> extends HecubaClientManager<K> 
 
 	@Override
 	public void deleteColumn(K key, String columnName) {
+		StringBuilder builder = new StringBuilder();
 		List<Object> values = new ArrayList<>();
 
-		String query = "DELETE FROM " + columnFamily + " WHERE key = ? and column1 = ?";
+		builder.append("BEGIN UNLOGGED BATCH\n");
+
+		if (isSecondaryIndexByColumnNameEnabledForColumn(columnName)) {
+			builder.append("\tDELETE FROM " + secondaryIndexColumnFamily + " where key = ? and column1 = ?;\n");
+			values.add(getSecondaryIndexKey(columnName, ""));
+			values.add(convertKey(key));
+		}
+
+		if (isSecondaryIndexByColumnNameAndValueEnabledForColumn(columnName)) {
+			String oldValue = readString(key, columnName);
+			builder.append("\tDELETE FROM " + secondaryIndexColumnFamily + " where key = ? and column1 = ?;\n");
+			values.add(getSecondaryIndexKey(columnName, oldValue));
+			values.add(convertKey(key));
+		}
+
+		builder.append("\tDELETE FROM " + columnFamily + " WHERE key = ? and column1 = ?;\n");
 		values.add(convertKey(key));
 		values.add(columnName);
 
-		execute(query, values.toArray());
+		builder.append("APPLY BATCH;");
+
+		execute(builder.toString(), values.toArray());
 	}
 
 	@Override
@@ -94,8 +111,34 @@ public class DataStaxBasedHecubaClientManager<K> extends HecubaClientManager<K> 
 		StringBuilder builder = new StringBuilder();
 		List<Object> values = new ArrayList<>();
 
-		if (columnNames.size() > 1) {
-			builder.append("BEGIN UNLOGGED BATCH\n");
+		builder.append("BEGIN UNLOGGED BATCH\n");
+
+		try {
+			if (isSecondaryIndexByColumnNameAndValueEnabled || isSecondaryIndexesByColumnNamesEnabled) {
+				// Find obsolete secondary indexes
+				CassandraResultSet<K, String> oldValues = readColumns(key, columnNames);
+				List<String> secondaryIndexesToDelete = new ArrayList<>();
+				for (String columnName : columnNames) {
+					if (isSecondaryIndexByColumnNameEnabledForColumn(columnName)) {
+						secondaryIndexesToDelete.add(getSecondaryIndexKey(columnName, ""));
+					}
+					if (isSecondaryIndexByColumnNameAndValueEnabledForColumn(columnName)) {
+						secondaryIndexesToDelete.add(getSecondaryIndexKey(columnName, oldValues.getString(columnName)));
+					}
+				}
+
+				// Delete obsolete secondary indexes
+				if (secondaryIndexesToDelete.size() > 0) {
+					for (String secondaryIndexKey : secondaryIndexesToDelete) {
+						builder.append("\tDELETE FROM " + secondaryIndexColumnFamily + " WHERE key = ? and column1 = ?;\n");
+						values.add(secondaryIndexKey);
+						values.add(convertKey(key));
+					}
+				}
+			}
+
+		} catch (Exception e) {
+			throw new RuntimeException(e);
 		}
 
 		for (String columnName : columnNames) {
@@ -104,9 +147,7 @@ public class DataStaxBasedHecubaClientManager<K> extends HecubaClientManager<K> 
 			values.add(columnName);
 		}
 
-		if (columnNames.size() > 1) {
-			builder.append("APPLY BATCH;");
-		}
+		builder.append("APPLY BATCH;");
 
 		execute(builder.toString(), values.toArray());
 	}
@@ -116,15 +157,55 @@ public class DataStaxBasedHecubaClientManager<K> extends HecubaClientManager<K> 
 		StringBuilder builder = new StringBuilder();
 		List<Object> values = new ArrayList<>();
 
-		builder.append("DELETE FROM " + columnFamily);
+		builder.append("BEGIN UNLOGGED BATCH\n");
+
+		if (isSecondaryIndexByColumnNameAndValueEnabled || isSecondaryIndexesByColumnNamesEnabled) {
+			try {
+				// Find obsolete secondary indexes
+				List<String> secondaryIndexesToDelete = new ArrayList<>();
+				final CassandraResultSet<K, String> oldValues = readAllColumns(key);
+				if (oldValues.hasResults()) {
+					for (String columnName : oldValues.getColumnNames()) {
+						if (isSecondaryIndexByColumnNameEnabledForColumn(columnName)) {
+							secondaryIndexesToDelete.add(getSecondaryIndexKey(columnName, ""));
+						}
+						if (isSecondaryIndexByColumnNameAndValueEnabledForColumn(columnName)) {
+							secondaryIndexesToDelete.add(getSecondaryIndexKey(columnName, oldValues.getString(columnName)));
+						}
+					}
+				}
+
+				// Delete obsolete secondary indexes
+				if (secondaryIndexesToDelete.size() > 0) {
+					for (String secondaryIndexKey : secondaryIndexesToDelete) {
+						builder.append("\tDELETE FROM " + secondaryIndexColumnFamily);
+
+						if (timestamp > 0) {
+							builder.append(" USING TIMESTAMP ?");
+							values.add(timestamp);
+						}
+
+						builder.append(" WHERE key = ? and column1 = ?;\n");
+						values.add(secondaryIndexKey);
+						values.add(convertKey(key));
+					}
+				}
+			} catch (Exception e) {
+				throw new RuntimeException(e);
+			}
+		}
+
+		builder.append("\tDELETE FROM " + columnFamily);
 
 		if (timestamp > 0) {
 			builder.append(" USING TIMESTAMP ?");
 			values.add(timestamp);
 		}
 
-		builder.append(" WHERE key = ?");
+		builder.append(" WHERE key = ?;\n");
 		values.add(convertKey(key));
+
+		builder.append("APPLY BATCH;");
 
 		execute(builder.toString(), values.toArray());
 	}
@@ -182,8 +263,16 @@ public class DataStaxBasedHecubaClientManager<K> extends HecubaClientManager<K> 
 
 	@Override
 	public CassandraResultSet readAllColumnsBySecondaryIndex(Map<String, String> parameters, int limit) {
-		// TODO Auto-generated method stub
-		return null;
+		List<Object> values = new ArrayList<>();
+		String query = "select * from " + columnFamily + " where " + StringUtils.repeat("?=?", " and ", parameters.size());
+		for (Map.Entry<String, String> entry : parameters.entrySet()) {
+			String column = entry.getKey();
+			String value = entry.getValue();
+			values.add(column);
+			values.add(value);
+		}
+
+		return execute(query, values.toArray());
 	}
 
 	@Override
@@ -307,33 +396,51 @@ public class DataStaxBasedHecubaClientManager<K> extends HecubaClientManager<K> 
 
 	@Override
 	public CassandraResultSet<K, String> retrieveByColumnNameBasedSecondaryIndex(String columnName) {
-		// TODO Auto-generated method stub
+		List<K> keys = retrieveKeysByColumnNameBasedSecondaryIndex(columnName);
+		if (keys != null) {
+			try {
+				CassandraResultSet<K, String> allColumns = readAllColumns(new HashSet<>(keys));
+				if (allColumns.hasResults()) {
+					return allColumns;
+				}
+			} catch (Exception e) {
+				throw new RuntimeException(e);
+			}
+		}
 		return null;
 	}
 
 	@Override
 	public CassandraResultSet<K, String> retrieveBySecondaryIndex(String columnName, List<String> columnValue) {
-		// TODO Auto-generated method stub
-		return null;
-	}
-
-	@SuppressWarnings("unchecked")
-	@Override
-	public CassandraResultSet<K, String> retrieveBySecondaryIndex(String columnName, String columnValue) {
-		String query = "select * from " + secondaryIndexColumnFamily + " where key = ?";
-		CassandraResultSet<K, String> keysResultSet = execute(query, DataType.ascii(), keyType, ImmutableMap.of("*", keyType), getSecondaryIndexKey(columnName, columnValue));
-		Set<K> keys = new LinkedHashSet<>();
-		if (keysResultSet.hasResults()) {
-			for (String key : keysResultSet.getColumnNames()) {
-				if (keyType == DataType.bigint()) {
-					keys.add((K) NumberUtils.createLong(key));
-				} else {
-					keys.add((K) key);
-				}
+		Map<String, List<K>> columnValueToKeysMap = retrieveKeysBySecondaryIndex(columnName, columnValue);
+		if (MapUtils.isNotEmpty(columnValueToKeysMap)) {
+			Set<K> keys = new HashSet<>();
+			for (List<K> subKeys : columnValueToKeysMap.values()) {
+				keys.addAll(subKeys);
 			}
 
 			try {
-				return readAllColumns(keys);
+				CassandraResultSet<K, String> allColumns = readAllColumns(keys);
+				if (allColumns.hasResults()) {
+					return allColumns;
+				}
+			} catch (Exception e) {
+				throw new RuntimeException(e);
+			}
+		}
+		return null;
+	}
+
+	@Override
+	public CassandraResultSet<K, String> retrieveBySecondaryIndex(String columnName, String columnValue) {
+		List<K> keys = retrieveKeysBySecondaryIndex(columnName, columnValue);
+
+		if (CollectionUtils.isNotEmpty(keys)) {
+			try {
+				CassandraResultSet<K, String> allColumns = readAllColumns(new HashSet<>(keys));
+				if (allColumns.hasResults()) {
+					return allColumns;
+				}
 			} catch (Exception e) {
 				throw new RuntimeException(e);
 			}
@@ -344,19 +451,63 @@ public class DataStaxBasedHecubaClientManager<K> extends HecubaClientManager<K> 
 
 	@Override
 	public List<K> retrieveKeysByColumnNameBasedSecondaryIndex(String columnName) {
-		// TODO Auto-generated method stub
-		return null;
+		return retrieveKeysBySecondaryIndex(columnName, (String) null);
 	}
 
 	@Override
 	public Map<String, List<K>> retrieveKeysBySecondaryIndex(String columnName, List<String> columnValues) {
-		// TODO Auto-generated method stub
-		return null;
+		String query = "select * from " + secondaryIndexColumnFamily + " where key in ?";
+		Map<String, String> secondaryIndexKeys = new HashMap<>();
+		for (String columnValue : columnValues) {
+			secondaryIndexKeys.put(getSecondaryIndexKey(columnName, columnValue), columnValue);
+		}
+
+		Map<String, List<K>> mapToKeys = new HashMap<>();
+		CassandraResultSet<K, String> keysResultSet = execute(query, DataType.ascii(), keyType, ImmutableMap.of("*", keyType), new ArrayList<>(secondaryIndexKeys.keySet()));
+		while (keysResultSet.hasResults()) {
+			List<K> keys = new ArrayList<>();
+			for (String key : keysResultSet.getColumnNames()) {
+				if (keyType == DataType.bigint()) {
+					keys.add((K) NumberUtils.createLong(key));
+				} else {
+					keys.add((K) key);
+				}
+			}
+
+			if (keys.size() > 0) {
+				String secondaryIndexKey = (String) keysResultSet.getKey();
+				String columnValue = secondaryIndexKeys.get(secondaryIndexKey);
+				mapToKeys.put(columnValue, keys);
+			}
+
+			if (!keysResultSet.hasNextResult()) {
+				break;
+			}
+
+			keysResultSet.nextResult();
+		}
+
+		return mapToKeys;
 	}
 
+	@SuppressWarnings("unchecked")
 	@Override
 	public List<K> retrieveKeysBySecondaryIndex(String columnName, String columnValue) {
-		// TODO Auto-generated method stub
+		String query = "select * from " + secondaryIndexColumnFamily + " where key = ?";
+		CassandraResultSet<K, String> keysResultSet = execute(query, DataType.ascii(), keyType, ImmutableMap.of("*", keyType), getSecondaryIndexKey(columnName, columnValue));
+		List<K> keys = new ArrayList<>();
+		if (keysResultSet.hasResults()) {
+			for (String key : keysResultSet.getColumnNames()) {
+				if (keyType == DataType.bigint()) {
+					keys.add((K) NumberUtils.createLong(key));
+				} else {
+					keys.add((K) key);
+				}
+			}
+
+			return keys;
+		}
+
 		return null;
 	}
 
@@ -378,9 +529,9 @@ public class DataStaxBasedHecubaClientManager<K> extends HecubaClientManager<K> 
 		StringBuilder builder = new StringBuilder();
 		List<Object> values = new ArrayList<>();
 
-		builder.append("BEGIN UNLOGGED BATCH\n");
-
 		updateSecondaryIndexes(key, row, timestamps, ttls);
+
+		builder.append("BEGIN UNLOGGED BATCH\n");
 
 		for (Map.Entry<String, Object> entry : row.entrySet()) {
 			builder.append("\tINSERT INTO " + columnFamily + " (key, column1, value) values (?,?,?)");
@@ -500,7 +651,7 @@ public class DataStaxBasedHecubaClientManager<K> extends HecubaClientManager<K> 
 
 		if (columnsChanged != null) {
 			for (String columnName : columnsChanged) {
-				String oldValue = oldValues.get(columnName);
+				String oldValue = oldValues != null ? oldValues.get(columnName) : null;
 				if (!StringUtils.isBlank(oldValue) && !"null".equalsIgnoreCase(oldValue)) {
 					// Delete old value if there is one (if it's null we'll just be writing it again down below with updated TS and TTL)
 					builder.append("\tDELETE FROM " + secondaryIndexColumnFamily);
@@ -519,7 +670,7 @@ public class DataStaxBasedHecubaClientManager<K> extends HecubaClientManager<K> 
 		}
 
 		for (String columnName : columnsChanged) {
-			Object value = row.get(columnName);
+			Object value = row != null ? row.get(columnName) : null;
 			String valueToInsert = ClientManagerUtils.getInstance().convertValueForStorage(value);
 
 			// Insert New Value

@@ -771,6 +771,9 @@ public abstract class HecubaClientManager<K> {
 	}
 
 	public String getSecondaryIndexKey(String columnName, String columnValue) {
+		if (columnValue == null || "null".equals(columnValue)) {
+			columnValue = "";
+		}
 		return columnName + ":" + columnValue;
 	}
 
