@@ -596,12 +596,11 @@ public class AstyanaxBasedHecubaClientManager<K> extends HecubaClientManager<K> 
 	}
 
 	@Override
-	public CassandraResultSet<K, String> readColumnSlice(Set<K> keys, String start, String end, boolean reversed,
-			int count) {
+	public CassandraResultSet<K, String> readColumnSlice(Set<K> keys, String start, String end, boolean reversed) {
 		try {
 			final OperationResult<Rows<K, String>> rowSliceQueryResult = keyspace.prepareQuery(columnFamily)
 					.getKeySlice(keys).withColumnRange(
-							start, end, reversed, count).execute();
+							start, end, reversed, Integer.MAX_VALUE).execute();
 			return new AstyanaxResultSet<K, String>(rowSliceQueryResult);
 		} catch (ConnectionException e) {
 			log.warn("error while executing a row slice query ", e);

@@ -50,6 +50,7 @@ public abstract class CassandraTestBase {
 	public static final String PORT = "9171";
 	public static final String CQL_PORT = "9142";
 	public static final String KEYSPACE = "Nextag";
+	public static final String DATACENTER = "datacenter1";
 	public static final Serializer<Long> LONG_KEY_SERIALIZER = LongSerializer.get();
 
 	private List<String> columnFamilyNames;
@@ -280,6 +281,7 @@ public abstract class CassandraTestBase {
 		params.setThriftPorts(PORT);
 		params.setCqlPort(CQL_PORT);
 		params.setKeyspace(KEYSPACE);
+		params.setDataCenter(DATACENTER);
 
 		return params;
 	}

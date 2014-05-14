@@ -291,7 +291,7 @@ public abstract class HecubaCassandraManagerTestBase extends CassandraTestBase {
 				"MySecondaryKey_1", "MySecondaryKey_1_value_1");
 
 		//   1. And that should have the id 1234L and 1233L
-		if (resultFromSecondRetrieval.getKey() == 1234L) {
+		if (resultFromSecondRetrieval.getKey().equals(1234L)) {
 			logger.info("Testing 1234");
 			assertEquals("value_1", resultFromSecondRetrieval.getString("column_1"));
 			assertEquals("value_2", resultFromSecondRetrieval.getString("column_2"));
@@ -307,7 +307,7 @@ public abstract class HecubaCassandraManagerTestBase extends CassandraTestBase {
 		assertTrue(resultFromSecondRetrieval.hasNextResult());
 		resultFromSecondRetrieval.nextResult();
 
-		if (resultFromSecondRetrieval.getKey() == 1234L) {
+		if (resultFromSecondRetrieval.getKey().equals(1234L)) {
 			logger.info("Testing 1234");
 			assertEquals("value_1", resultFromSecondRetrieval.getString("column_1"));
 			assertEquals("value_2", resultFromSecondRetrieval.getString("column_2"));
@@ -733,55 +733,6 @@ public abstract class HecubaCassandraManagerTestBase extends CassandraTestBase {
 		assertEquals(0, keysCopy.size()); // Asserts we get both the keys in the result set
 
 
-		/**
-		 *  ___________________________________
-		 *  |  Retrieve N columns for all keys
-		 *  -----------------------------------
-		 */
-		result = cassandraManager.readColumnSlice(keys, null, null, false, 120);
-		keysCopy = new HashSet<Long>(keys);
-		count = 0;
-		while (true) {
-			count++;
-			// column count should be 120 since we put the limit of 120
-			assertEquals(120, result.getColumnNames().size());
-			assertEquals(true, keysCopy.remove(result.getKey()));
-			if (!result.hasNextResult()) {
-				break;
-			}
-			result.nextResult();
-		}
-		assertEquals(keys.size(), count); // Asserts the result set contains exactly same number of rows as is the
-		// keys size
-		assertEquals(0, keysCopy.size()); // Asserts we get both the keys in the result set
-
-
-		/**
-		 *  ________________________________________________________
-		 *  | Retrieve N columns with range specified for all keys
-		 *  --------------------------------------------------------
-		 */
-		result = cassandraManager.readColumnSlice(keys, "column_111", "column_113", false, 10);
-		keysCopy = new HashSet<Long>(keys);
-		count = 0;
-		while (true) {
-			count++;
-			// This range contains 3 columns, so the column count should be 3
-			assertEquals(3, result.getColumnNames().size());
-			assertEquals("value_111", result.getString("column_111"));
-			assertEquals("value_112", result.getString("column_112"));
-			assertEquals("value_113", result.getString("column_113"));
-			assertEquals(true, keysCopy.remove(result.getKey()));
-			if (!result.hasNextResult()) {
-				break;
-			}
-			result.nextResult();
-		}
-		assertEquals(keys.size(), count); // Asserts the result set contains exactly same number of rows as is the
-		// keys size
-		assertEquals(0, keysCopy.size()); // Asserts we get both the keys in the result set
-
-
 		/*************************************************************************/
 		/****** TEST CASSANDRA ROWS CONTAINS < 100 COLUMNS  +  A MISS ROW ********/
 		/*************************************************************************/
@@ -822,19 +773,19 @@ public abstract class HecubaCassandraManagerTestBase extends CassandraTestBase {
 		while (true) {
 			count++;
 			assertEquals(true, keysCopy.remove(result.getKey()));
-			if (result.getKey() == key1) {
+			if (result.getKey().equals(key1)) {
 				// Column count should be 80
 				assertEquals(80, result.getColumnNames().size());
 				for (String columnName : row1.keySet()) {
 					assertEquals(row1.get(columnName), result.getString(columnName));
 				}
-			} else if (result.getKey() == key2) {
+			} else if (result.getKey().equals(key2)) {
 				// Column count should be 60
 				assertEquals(60, result.getColumnNames().size());
 				for (String columnName : row2.keySet()) {
 					assertEquals(row2.get(columnName), result.getString(columnName));
 				}
-			} else if (result.getKey() == key3) {
+			} else if (result.getKey().equals(key3)) {
 				// Column count should be 0 since key3 doesn't exist
 				assertEquals(0, result.getColumnNames().size());
 			}
@@ -845,64 +796,6 @@ public abstract class HecubaCassandraManagerTestBase extends CassandraTestBase {
 		}
 		assertEquals(3, count); // Asserts the result set contains exactly 3 rows
 		assertEquals(0, keysCopy.size()); // Asserts we get all the keys in the result set
-
-
-		/**
-		 *  ___________________________________
-		 *  |  Retrieve N columns for all keys
-		 *  -----------------------------------
-		 */
-		result = cassandraManager.readColumnSlice(keys, null, null, false, 50);
-		keysCopy = new HashSet<Long>(keys);
-		count = 0;
-		while (true) {
-			count++;
-			assertEquals(true, keysCopy.remove(result.getKey()));
-			if (result.getKey() == key1 || result.getKey() == key2) {
-				// column count should be 50 (for key1 & key2) since we passed the limit 50
-				assertEquals(50, result.getColumnNames().size());
-			} else if (result.getKey() == key3) {
-				// Column count should be 0 since this key doesn't exist
-				assertEquals(0, result.getColumnNames().size());
-			}
-			if (!result.hasNextResult()) {
-				break;
-			}
-			result.nextResult();
-		}
-		assertEquals(3, count); // Asserts the result set contains exactly 3 rows
-		assertEquals(0, keysCopy.size()); // Asserts we get all the keys in the result set
-
-
-		/**
-		 *  ________________________________________________________
-		 *  | Retrieve N columns with range specified for all keys
-		 *  --------------------------------------------------------
-		 */
-		result = cassandraManager.readColumnSlice(keys, "column_11", "column_13", false, 10);
-		keysCopy = new HashSet<Long>(keys);
-		count = 0;
-		while (true) {
-			count++;
-			assertEquals(true, keysCopy.remove(result.getKey()));
-			if (result.getKey() == key1 || result.getKey() == key2) {
-				// This range contains 3 columns, so the column count should be 3 in case of key1 & key2
-				assertEquals(3, result.getColumnNames().size());
-				assertEquals("value_11", result.getString("column_11"));
-				assertEquals("value_12", result.getString("column_12"));
-				assertEquals("value_13", result.getString("column_13"));
-			} else if (result.getKey() == key3) {
-				// Column count should be 0 since this key doesn't exist
-				assertEquals(0, result.getColumnNames().size());
-			}
-			if (!result.hasNextResult()) {
-				break;
-			}
-			result.nextResult();
-		}
-		assertEquals(3, count); // Asserts the result set contains exactly 3 rows
-		assertEquals(0, keysCopy.size()); // Asserts we get all the keys in the result set
-
 	}
 
 	@Test

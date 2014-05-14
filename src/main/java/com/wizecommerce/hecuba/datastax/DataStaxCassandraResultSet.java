@@ -176,7 +176,7 @@ public class DataStaxCassandraResultSet<K> extends AbstractCassandraResultSet<K,
 
 	@Override
 	public boolean hasResults() {
-		return getColumnNames().size() > 0;
+		return currentKey != null;
 	}
 
 	@Override

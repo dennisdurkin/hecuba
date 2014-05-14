@@ -5,6 +5,7 @@ import java.util.*;
 
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.collections.MapUtils;
+import org.apache.commons.configuration.Configuration;
 import org.apache.commons.lang.StringUtils;
 import org.apache.commons.lang.math.NumberUtils;
 import org.apache.commons.lang3.ObjectUtils;
@@ -24,57 +25,104 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Iterables;
 import com.wizecommerce.hecuba.*;
 import com.wizecommerce.hecuba.util.ClientManagerUtils;
-
-/*
- * TODO: Exception throwing
- * TODO: Handle properties (timeouts, CL, etc...)
- */
+import com.wizecommerce.hecuba.util.ConfigUtils;
 
 public class DataStaxBasedHecubaClientManager<K> extends HecubaClientManager<K> {
 	private static final Logger logger = LoggerFactory.getLogger(DataStaxBasedHecubaClientManager.class);
 
 	private DataType keyType;
+
 	private String datacenter;
 	private String[] endpoints;
 	private int port;
 	private String keyspace;
+
+	private String columnFamily;
+	private String secondaryIndexColumnFamily;
+
 	private String username;
 	private String password;
-	private ConsistencyLevel consistencyLevel;
-	private LoadingCache<String, PreparedStatement> statementCache = CacheBuilder.newBuilder().maximumSize(1000).build(new CacheLoader<String, PreparedStatement>() {
-		@Override
-		public PreparedStatement load(String query) throws Exception {
-			PreparedStatement stmt = session.prepare(query);
-			stmt.setConsistencyLevel(consistencyLevel);
-			return stmt;
-		}
-	});
+
+	private ConsistencyLevel readConsistencyLevel;
+	private ConsistencyLevel writeConsistencyLevel;
+
+	private int connectTimeout;
+	private int readTimeout;
+	private int maxConnectionsPerHost;
 
 	private boolean compressionEnabled;
 
 	private Session session;
 
-	private String columnFamily;
-	private String secondaryIndexColumnFamily;
+	private LoadingCache<String, PreparedStatement> readStatementCache = CacheBuilder.newBuilder().maximumSize(1000).build(new CacheLoader<String, PreparedStatement>() {
+		@Override
+		public PreparedStatement load(String query) throws Exception {
+			PreparedStatement stmt = session.prepare(query);
+			stmt.setConsistencyLevel(readConsistencyLevel);
+			return stmt;
+		}
+	});
+	private LoadingCache<String, PreparedStatement> writeStatementCache = CacheBuilder.newBuilder().maximumSize(1000).build(new CacheLoader<String, PreparedStatement>() {
+		@Override
+		public PreparedStatement load(String query) throws Exception {
+			PreparedStatement stmt = session.prepare(query);
+			stmt.setConsistencyLevel(writeConsistencyLevel);
+			return stmt;
+		}
+	});
 
 	public DataStaxBasedHecubaClientManager(CassandraParamsBean parameters, DataType keyType) {
 		super(parameters);
 
+		Configuration configuration = ConfigUtils.getInstance().getConfiguration();
+
 		this.keyType = keyType;
 
-		this.datacenter = parameters.getDataCenter();
-		this.endpoints = Iterables.toArray(Splitter.on(":").split(parameters.getLocationURLs()), String.class);
-		this.keyspace = parameters.getKeyspace();
-		this.columnFamily = '"' + parameters.getColumnFamily() + '"';
-		// TODO: Get from configuration
-		this.secondaryIndexColumnFamily = '"' + parameters.getColumnFamily() + HecubaConstants.SECONDARY_INDEX_CF_NAME_SUFFIX + '"';
-		this.port = NumberUtils.toInt(parameters.getCqlPort());
-		this.username = parameters.getUsername();
-		this.password = parameters.getPassword();
+		datacenter = parameters.getDataCenter();
+		if (StringUtils.isEmpty(this.datacenter)) {
+			datacenter = configuration.getString(HecubaConstants.DATASTAX_DATACENTER, null);
 
-		this.consistencyLevel = ConsistencyLevel.LOCAL_ONE;
+			if (StringUtils.isEmpty(this.datacenter)) {
+				logger.warn("Datacenter is unset.  It is recommended to be set or performance may degrade unexpectedly.");
+			}
+		}
+		endpoints = Iterables.toArray(Splitter.on(":").split(parameters.getLocationURLs()), String.class);
+		keyspace = parameters.getKeyspace();
+		columnFamily = '"' + parameters.getColumnFamily() + '"';
+		secondaryIndexColumnFamily = '"' + getSecondaryIndexColumnFamily(parameters) + '"';
+		port = NumberUtils.toInt(parameters.getCqlPort());
+		username = parameters.getUsername();
+		password = parameters.getPassword();
+
+		readConsistencyLevel = getConsistencyLevel("read");
+		readConsistencyLevel = getConsistencyLevel("write");
+
+		connectTimeout = configuration.getInt(HecubaConstants.DATASTAX_CONNECT_TIMEOUT, connectTimeout);
+		readTimeout = configuration.getInt(HecubaConstants.DATASTAX_READ_TIMEOUT, readTimeout);
+		maxConnectionsPerHost = configuration.getInt(HecubaConstants.DATASTAX_MAX_CONNECTIONS_PER_HOST, maxConnectionsPerHost);
+		compressionEnabled = configuration.getBoolean(HecubaConstants.DATASTAX_COMPRESSION_ENABLED, compressionEnabled);
 
 		init();
+	}
+
+	private ConsistencyLevel getConsistencyLevel(String operation) {
+		Configuration configuration = ConfigUtils.getInstance().getConfiguration();
+
+		String consistencyLevel = "ONE";
+		String[] consistencyPolicyProperties = HecubaConstants.getConsistencyPolicyProperties(this.columnFamily, operation);
+
+		for (String property : consistencyPolicyProperties) {
+			consistencyLevel = configuration.getString(property, consistencyLevel);
+		}
+
+		return ConsistencyLevel.valueOf(consistencyLevel);
+	}
+
+	private String getSecondaryIndexColumnFamily(CassandraParamsBean parameters) {
+		Configuration configuration = ConfigUtils.getInstance().getConfiguration();
+		String secondaryIndexColumnFamilyProperty = HecubaConstants.getSecondaryIndexColumnFamilyProperty(parameters.getColumnFamily());
+		String defaultSecondaryIndexColumnFamily = parameters.getColumnFamily() + HecubaConstants.SECONDARY_INDEX_CF_NAME_SUFFIX;
+		return configuration.getString(secondaryIndexColumnFamilyProperty, defaultSecondaryIndexColumnFamily);
 	}
 
 	@Override
@@ -103,7 +151,7 @@ public class DataStaxBasedHecubaClientManager<K> extends HecubaClientManager<K> 
 
 		builder.append("APPLY BATCH;");
 
-		execute(builder.toString(), values.toArray());
+		write(builder.toString(), values.toArray());
 	}
 
 	@Override
@@ -149,7 +197,7 @@ public class DataStaxBasedHecubaClientManager<K> extends HecubaClientManager<K> 
 
 		builder.append("APPLY BATCH;");
 
-		execute(builder.toString(), values.toArray());
+		write(builder.toString(), values.toArray());
 	}
 
 	@Override
@@ -207,14 +255,14 @@ public class DataStaxBasedHecubaClientManager<K> extends HecubaClientManager<K> 
 
 		builder.append("APPLY BATCH;");
 
-		execute(builder.toString(), values.toArray());
+		write(builder.toString(), values.toArray());
 	}
 
 	@Override
 	public Long getCounterValue(K key, String counterColumnName) {
 		String query = "select * from " + columnFamily + " where key=? and column1=?";
 
-		CassandraResultSet<K, String> result = execute(query, null, null, ImmutableMap.of(counterColumnName, DataType.counter()), convertKey(key), counterColumnName);
+		CassandraResultSet<K, String> result = read(query, null, null, ImmutableMap.of(counterColumnName, DataType.counter()), convertKey(key), counterColumnName);
 
 		if (result.hasResults()) {
 			return result.getLong(counterColumnName);
@@ -233,7 +281,7 @@ public class DataStaxBasedHecubaClientManager<K> extends HecubaClientManager<K> 
 		values.add(convertKey(key));
 		values.add(counterColumnName);
 
-		execute(builder.toString(), values.toArray());
+		write(builder.toString(), values.toArray());
 	}
 
 	@Override
@@ -250,21 +298,26 @@ public class DataStaxBasedHecubaClientManager<K> extends HecubaClientManager<K> 
 	public CassandraResultSet<K, String> readAllColumns(K key) throws Exception {
 		String query = "select * from " + columnFamily + " where key=?";
 
-		return execute(query, convertKey(key));
+		return read(query, convertKey(key));
 	}
 
 	@Override
 	public CassandraResultSet<K, String> readAllColumns(Set<K> keys) throws Exception {
 		String query = "select * from " + columnFamily + " where key in ?";
 
-		return execute(query, convertKeys(keys));
+		return read(query, convertKeys(keys));
 
 	}
 
 	@Override
 	public CassandraResultSet readAllColumnsBySecondaryIndex(Map<String, String> parameters, int limit) {
 		List<Object> values = new ArrayList<>();
-		String query = "select * from " + columnFamily + " where " + StringUtils.repeat("?=?", " and ", parameters.size());
+		StringBuilder builder = new StringBuilder();
+		builder.append("select * from " + columnFamily + " where " + StringUtils.repeat("?=?", " and ", parameters.size()));
+		if (limit > 0) {
+			builder.append(" limit ?");
+			values.add(limit);
+		}
 		for (Map.Entry<String, String> entry : parameters.entrySet()) {
 			String column = entry.getKey();
 			String value = entry.getValue();
@@ -272,14 +325,14 @@ public class DataStaxBasedHecubaClientManager<K> extends HecubaClientManager<K> 
 			values.add(value);
 		}
 
-		return execute(query, values.toArray());
+		return read(builder.toString(), values.toArray());
 	}
 
 	@Override
 	public CassandraColumn readColumnInfo(K key, String columnName) {
 		String query = "select key, column1, value, writetime(value), ttl(value) from " + columnFamily + " where key=? and column1=?";
 
-		PreparedStatement stmt = statementCache.getUnchecked(query);
+		PreparedStatement stmt = readStatementCache.getUnchecked(query);
 
 		BoundStatement bind = stmt.bind(convertKey(key), columnName);
 		ResultSet rs = session.execute(bind);
@@ -304,7 +357,7 @@ public class DataStaxBasedHecubaClientManager<K> extends HecubaClientManager<K> 
 
 		String query = "select * from " + columnFamily + " where key=? and column1 in ?";
 
-		CassandraResultSet<K, String> result = execute(query, convertKey(key), columnNames);
+		CassandraResultSet<K, String> result = read(query, convertKey(key), columnNames);
 
 		return result;
 	}
@@ -317,7 +370,7 @@ public class DataStaxBasedHecubaClientManager<K> extends HecubaClientManager<K> 
 
 		String query = "select * from " + columnFamily + " where key in ? and column1 in ?";
 
-		CassandraResultSet<K, String> result = execute(query, convertKeys(keys), columnNames);
+		CassandraResultSet<K, String> result = read(query, convertKeys(keys), columnNames);
 
 		return result;
 	}
@@ -348,11 +401,14 @@ public class DataStaxBasedHecubaClientManager<K> extends HecubaClientManager<K> 
 			values.add(count);
 		}
 
-		return execute(builder.toString(), values.toArray());
+		return read(builder.toString(), values.toArray());
 	}
 
 	@Override
-	public CassandraResultSet<K, String> readColumnSlice(Set<K> keys, String start, String end, boolean reversed, int count) {
+	public CassandraResultSet<K, String> readColumnSlice(Set<K> keys, String start, String end, boolean reversed) {
+		// CQL3 does not support column slice count limit anymore (they used to have FIRST N)
+		// If count is passed in we'll issue multiple single gets, but return as a stream of streams
+
 		List<Object> values = new ArrayList<>();
 		StringBuilder builder = new StringBuilder();
 		builder.append("select * from " + columnFamily + " where key in ?");
@@ -372,20 +428,14 @@ public class DataStaxBasedHecubaClientManager<K> extends HecubaClientManager<K> 
 			builder.append(" order by column1 desc");
 		}
 
-		if (count > 0) {
-			// TODO: Need to limit count per key, not overall count...is that even possible with CQL?
-			builder.append(" limit ?");
-			values.add(count);
-		}
-
-		return execute(builder.toString(), values.toArray());
+		return read(builder.toString(), values.toArray());
 	}
 
 	@Override
 	public String readString(K key, String columnName) {
 		String query = "select * from " + columnFamily + " where key=? and column1=?";
 
-		CassandraResultSet<K, String> result = execute(query, convertKey(key), columnName);
+		CassandraResultSet<K, String> result = read(query, convertKey(key), columnName);
 
 		if (result.hasResults()) {
 			return result.getString(columnName);
@@ -463,7 +513,7 @@ public class DataStaxBasedHecubaClientManager<K> extends HecubaClientManager<K> 
 		}
 
 		Map<String, List<K>> mapToKeys = new HashMap<>();
-		CassandraResultSet<K, String> keysResultSet = execute(query, DataType.ascii(), keyType, ImmutableMap.of("*", keyType), new ArrayList<>(secondaryIndexKeys.keySet()));
+		CassandraResultSet<K, String> keysResultSet = read(query, DataType.ascii(), keyType, ImmutableMap.of("*", keyType), new ArrayList<>(secondaryIndexKeys.keySet()));
 		while (keysResultSet.hasResults()) {
 			List<K> keys = new ArrayList<>();
 			for (String key : keysResultSet.getColumnNames()) {
@@ -494,7 +544,7 @@ public class DataStaxBasedHecubaClientManager<K> extends HecubaClientManager<K> 
 	@Override
 	public List<K> retrieveKeysBySecondaryIndex(String columnName, String columnValue) {
 		String query = "select * from " + secondaryIndexColumnFamily + " where key = ?";
-		CassandraResultSet<K, String> keysResultSet = execute(query, DataType.ascii(), keyType, ImmutableMap.of("*", keyType), getSecondaryIndexKey(columnName, columnValue));
+		CassandraResultSet<K, String> keysResultSet = read(query, DataType.ascii(), keyType, ImmutableMap.of("*", keyType), getSecondaryIndexKey(columnName, columnValue));
 		List<K> keys = new ArrayList<>();
 		if (keysResultSet.hasResults()) {
 			for (String key : keysResultSet.getColumnNames()) {
@@ -521,7 +571,7 @@ public class DataStaxBasedHecubaClientManager<K> extends HecubaClientManager<K> 
 		values.add(columnName);
 		values.add(value);
 
-		execute(builder.toString(), values.toArray());
+		write(builder.toString(), values.toArray());
 	}
 
 	@Override
@@ -560,7 +610,7 @@ public class DataStaxBasedHecubaClientManager<K> extends HecubaClientManager<K> 
 
 		builder.append("APPLY BATCH;");
 
-		execute(builder.toString(), values.toArray());
+		write(builder.toString(), values.toArray());
 	}
 
 	@Override
@@ -587,7 +637,7 @@ public class DataStaxBasedHecubaClientManager<K> extends HecubaClientManager<K> 
 			values.add(ttl);
 		}
 
-		execute(builder.toString(), values.toArray());
+		write(builder.toString(), values.toArray());
 	}
 
 	private void updateSecondaryIndexes(K key, Map<String, Object> row, Map<String, Long> timestamps, Map<String, Integer> ttls) {
@@ -697,7 +747,7 @@ public class DataStaxBasedHecubaClientManager<K> extends HecubaClientManager<K> 
 
 		builder.append("APPLY BATCH;");
 
-		execute(builder.toString(), values.toArray());
+		write(builder.toString(), values.toArray());
 	}
 
 	private void updateSecondaryIndexes(K key, String columnName, String value, long timestamp, int ttl, String oldValue) {
@@ -741,7 +791,7 @@ public class DataStaxBasedHecubaClientManager<K> extends HecubaClientManager<K> 
 
 		builder.append("APPLY BATCH;");
 
-		execute(builder.toString(), values.toArray());
+		write(builder.toString(), values.toArray());
 	}
 
 	private Object convertKey(K key) {
@@ -770,13 +820,13 @@ public class DataStaxBasedHecubaClientManager<K> extends HecubaClientManager<K> 
 		return convertedKeys;
 	}
 
-	private CassandraResultSet<K, String> execute(String query, Object... values) {
-		return execute(query, null, null, null, values);
+	private CassandraResultSet<K, String> read(String query, Object... values) {
+		return read(query, null, null, null, values);
 	}
 
-	private CassandraResultSet<K, String> execute(String query, DataType keyType, DataType columnType, Map<String, DataType> valueTypes, Object... values) {
+	private CassandraResultSet<K, String> read(String query, DataType keyType, DataType columnType, Map<String, DataType> valueTypes, Object... values) {
 		logger.debug("query = {} : values = {}", query, values);
-		PreparedStatement stmt = statementCache.getUnchecked(query);
+		PreparedStatement stmt = readStatementCache.getUnchecked(query);
 
 		BoundStatement bind = stmt.bind(values);
 		long startTimeNanos = System.nanoTime();
@@ -787,6 +837,14 @@ public class DataStaxBasedHecubaClientManager<K> extends HecubaClientManager<K> 
 				durationNanos);
 
 		return cassandraResultSet;
+	}
+
+	private void write(String query, Object... values) {
+		logger.debug("query = {} : values = {}", query, values);
+		PreparedStatement stmt = writeStatementCache.getUnchecked(query);
+
+		BoundStatement bind = stmt.bind(values);
+		session.execute(bind);
 	}
 
 	private void init() {
@@ -811,6 +869,36 @@ public class DataStaxBasedHecubaClientManager<K> extends HecubaClientManager<K> 
 
 		if (compressionEnabled) {
 			builder.withCompression(Compression.LZ4);
+		}
+
+		SocketOptions socketOptions = null;
+		if (readTimeout > 0) {
+			if (socketOptions == null) {
+				socketOptions = new SocketOptions();
+			}
+			socketOptions.setReadTimeoutMillis(readTimeout);
+		}
+
+		if (connectTimeout > 0) {
+			if (socketOptions == null) {
+				socketOptions = new SocketOptions();
+			}
+			socketOptions.setConnectTimeoutMillis(connectTimeout);
+		}
+
+		if (socketOptions != null) {
+			builder.withSocketOptions(socketOptions);
+		}
+
+		PoolingOptions poolingOptions = null;
+		if (maxConnectionsPerHost > 0) {
+			poolingOptions = new PoolingOptions();
+			poolingOptions.setMaxConnectionsPerHost(HostDistance.REMOTE, maxConnectionsPerHost);
+			poolingOptions.setMaxConnectionsPerHost(HostDistance.LOCAL, maxConnectionsPerHost);
+		}
+
+		if (poolingOptions != null) {
+			builder.withPoolingOptions(poolingOptions);
 		}
 
 		Cluster cluster = builder.build();

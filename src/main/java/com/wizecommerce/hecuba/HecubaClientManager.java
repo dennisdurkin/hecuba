@@ -507,13 +507,11 @@ public abstract class HecubaClientManager<K> {
 	 *                 When reversed is true, start will determine the right end of the range while finish will
 	 *                 determine the left,
 	 *                 meaning start must be >= finish.
-	 * @param count    - number of columns to return (Analogous to "limit X" in SQL world).
 	 *
 	 * @return CassandraResultSet (interface to get column values) </br>
 	 *         If any key(s) doesn't exist in Cassandra, returned ResultSet will contain no column for those key(s).
 	 */
-	public abstract CassandraResultSet<K, String> readColumnSlice(Set<K> keys, String start, String end,
-			boolean reversed, int count);
+	public abstract CassandraResultSet<K, String> readColumnSlice(Set<K> keys, String start, String end, boolean reversed);
 
 	/**
 	 * Retrieves all columns (upto a limit of 10000 columns) for set of keys. </br>
@@ -526,7 +524,7 @@ public abstract class HecubaClientManager<K> {
 	 *         If any key(s) doesn't exist in Cassandra, returned ResultSet will contain no column for those key(s).
 	 */
 	public CassandraResultSet<K, String> readColumnSliceAllColumns(Set<K> keys) {
-		return readColumnSlice(keys, null, null, false, 10000);
+		return readColumnSlice(keys, null, null, false);
 	}
 
 

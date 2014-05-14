@@ -14,12 +14,12 @@
 		<appender-ref ref="console" />
 	</root>
 
-	<logger name="org.apache.cassandra.db.Memtable">
-		<level value="fatal" />
-	</logger>
+	<category name="org.apache.cassandra.db.Memtable">
+		<priority value="fatal" />
+	</category>
 
-	<logger name="com.wizecommerce.hecuba.datastax.DataStaxBasedHecubaClientManager">
-		<level value="debug" />
-	</logger>
-
+	<category
+		name="com.wizecommerce.hecuba.datastax.DataStaxBasedHecubaClientManager">
+		<priority value="debug" />
+	</category>
 </log4j:configuration>
